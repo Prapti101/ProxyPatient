@@ -1,0 +1,42 @@
+﻿# RAW DATA - NEVER COMMIT (DHS License)
+raw/
+*.DTA
+*.dta
+*.sav
+*.gz
+*.tar
+
+# PROCESSED INDIVIDUAL-LEVEL DATA - TOO LARGE FOR GITHUB
+processed/train.parquet
+processed/val.parquet
+processed/test.parquet
+processed/combined_clean.parquet
+processed/women_clean.parquet
+processed/men_clean.parquet
+processed/dae_imputed_train.parquet
+processed/dae_imputed_val.parquet
+processed/dae_imputed_combined.parquet
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.env
+.venv/
+
+# Notebooks with outputs
+*.ipynb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.log

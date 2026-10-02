@@ -1,0 +1,448 @@
+{
+  "_meta": {
+    "project": "ProxyPatient",
+    "source": "NFHS-5 India (2019-21), MoHFW/IIPS, DHS Program",
+    "audit_date": "2026-10-02",
+    "note": "All variable codes verified from file metadata. Never guessed.",
+    "dhs_recode_manual": "DHS-VII Recode Manual",
+    "forbidden_datasets": [
+      "Diabetes 130-US Hospitals",
+      "Pima Indians",
+      "UCI Early Stage Diabetes (Sylhet, Bangladesh)"
+    ]
+  },
+
+  "women": {
+    "file": "raw/IAIR7EDT_extracted/IAIR7EFL.DTA",
+    "total_variables": 5972,
+    "respondents": "Women aged 15-49",
+
+    "variables": {
+
+      "v005": {
+        "label": "women's individual sample weight (6 decimals)",
+        "type": "continuous",
+        "role": "survey_weight",
+        "dhs_note": "Divide by 1,000,000 to get true weight. Use for population-representative stats.",
+        "missing_codes": []
+      },
+
+      "v012": {
+        "label": "respondent's current age",
+        "type": "continuous",
+        "role": "conditioning",
+        "range": [15, 49],
+        "derived_as": "age_band",
+        "missing_codes": [99]
+      },
+
+      "v013": {
+        "label": "age in 5-year groups",
+        "type": "categorical",
+        "role": "reference_only",
+        "missing_codes": []
+      },
+
+      "v024": {
+        "label": "state",
+        "type": "categorical",
+        "role": "conditioning",
+        "note": "State embedding used in CVAE. 36 Indian states/UTs.",
+        "missing_codes": []
+      },
+
+      "v025": {
+        "label": "type of place of residence",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {"1": "urban", "2": "rural"},
+        "derived_as": "residence",
+        "missing_codes": []
+      },
+
+      "v106": {
+        "label": "highest educational level",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {
+          "0": "no education",
+          "1": "primary",
+          "2": "secondary",
+          "3": "higher"
+        },
+        "derived_as": "education",
+        "missing_codes": [9]
+      },
+
+      "v190": {
+        "label": "wealth index combined",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {
+          "1": "poorest",
+          "2": "poorer",
+          "3": "middle",
+          "4": "richer",
+          "5": "richest"
+        },
+        "derived_as": "wealth_quintile",
+        "missing_codes": []
+      },
+
+      "v191": {
+        "label": "wealth index factor score combined (5 decimals)",
+        "type": "continuous",
+        "role": "reference_only",
+        "missing_codes": []
+      },
+
+      "v437": {
+        "label": "respondent's weight in kilograms (1 decimal)",
+        "type": "continuous",
+        "role": "feature",
+        "dhs_note": "Divide raw value by 10 to get kg.",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "v445": {
+        "label": "body mass index",
+        "type": "continuous",
+        "role": "conditioning",
+        "derived_as": "bmi_band",
+        "dhs_note": "Divide raw value by 100 to get true BMI (2 implied decimals).",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "s305": {
+        "label": "waist circumference",
+        "type": "continuous",
+        "role": "feature",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "s306": {
+        "label": "hip circumference",
+        "type": "continuous",
+        "role": "feature",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "sb19": {
+        "label": "blood pressure ever been checked previously",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "sb55": {
+        "label": "blood glucose ever been checked",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "sb56": {
+        "label": "told high blood glucose on two or more occasions by doctor or health professional",
+        "type": "categorical",
+        "role": "feature",
+        "note": "Used to help derive hypertension/diabetes-aware flag. NOT an imputed glucose.",
+        "missing_codes": [9]
+      },
+
+      "sb57": {
+        "label": "currently taking a prescribed medicine to lower blood glucose",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "sb73": {
+        "label": "time of blood glucose reading (hhmm - 24 hour clock)",
+        "type": "continuous",
+        "role": "reference_only",
+        "note": "Used to determine fasting vs random. Verify with codebook.",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "sb74": {
+        "label": "glucose level",
+        "type": "continuous",
+        "role": "OUTCOME",
+        "derived_as": "elevated_glucose_proxy",
+        "threshold_mg_dl": 200,
+        "CRITICAL_RULES": [
+          "This is the ONLY outcome variable.",
+          "NEVER use as a conditioning/what-if input.",
+          "NEVER impute. If missing, exclude row from outcome_stat only.",
+          "Always label result as 'elevated glucose (proxy)', never 'diabetes'."
+        ],
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "v463a": {
+        "label": "smokes cigarettes",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "v463z": {
+        "label": "does not use cigarettes and tobacco",
+        "type": "categorical",
+        "role": "feature",
+        "note": "Use with v463a–v463x to derive binary 'any_tobacco' flag.",
+        "missing_codes": []
+      },
+
+      "s707": {
+        "label": "for how long have you been smoking cigarettes regularly",
+        "type": "continuous",
+        "role": "feature",
+        "missing_codes": [99]
+      },
+
+      "s708": {
+        "label": "do you currently smoke bidis",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "s711": {
+        "label": "currently smokes or uses tobacco besides cigarettes",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "s720": {
+        "label": "do you drink alcohol",
+        "type": "categorical",
+        "role": "conditioning",
+        "derived_as": "alcohol",
+        "values": {"0": "no", "1": "yes"},
+        "missing_codes": [9]
+      },
+
+      "s721": {
+        "label": "how often do you drink alcohol",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "sb14c": {
+        "label": "30 minutes prior to bp measure: smoked any tobacco product",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "sb16": {
+        "label": "blood pressure monitor cuff size",
+        "type": "categorical",
+        "role": "reference_only",
+        "missing_codes": []
+      }
+    }
+  },
+
+  "men": {
+    "file": "raw/IAMR7EDT_extracted/IAMR7EFL.DTA",
+    "total_variables": 861,
+    "respondents": "Men aged 15-54",
+
+    "variables": {
+
+      "mv005": {
+        "label": "men's sample weight (6 decimals)",
+        "type": "continuous",
+        "role": "survey_weight",
+        "dhs_note": "Divide by 1,000,000 to get true weight.",
+        "missing_codes": []
+      },
+
+      "mv012": {
+        "label": "current age",
+        "type": "continuous",
+        "role": "conditioning",
+        "range": [15, 54],
+        "derived_as": "age_band",
+        "missing_codes": [99]
+      },
+
+      "mv024": {
+        "label": "state",
+        "type": "categorical",
+        "role": "conditioning",
+        "missing_codes": []
+      },
+
+      "mv025": {
+        "label": "type of place of residence",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {"1": "urban", "2": "rural"},
+        "derived_as": "residence",
+        "missing_codes": []
+      },
+
+      "mv106": {
+        "label": "educational level",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {
+          "0": "no education",
+          "1": "primary",
+          "2": "secondary",
+          "3": "higher"
+        },
+        "derived_as": "education",
+        "missing_codes": [9]
+      },
+
+      "mv190": {
+        "label": "wealth index combined",
+        "type": "categorical",
+        "role": "conditioning",
+        "values": {
+          "1": "poorest",
+          "2": "poorer",
+          "3": "middle",
+          "4": "richer",
+          "5": "richest"
+        },
+        "derived_as": "wealth_quintile",
+        "missing_codes": []
+      },
+
+      "smb305": {
+        "label": "waist circumference",
+        "type": "continuous",
+        "role": "feature",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "smb306": {
+        "label": "hip circumference",
+        "type": "continuous",
+        "role": "feature",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "smb19": {
+        "label": "blood pressure ever been checked previously",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "smb55": {
+        "label": "blood glucose ever been checked",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "smb56": {
+        "label": "told high blood glucose on two or more occasions by doctor or health professional",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "smb57": {
+        "label": "currently taking a prescribed medicine to lower blood glucose",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "smb73": {
+        "label": "time of blood glucose reading (hhmm - 24 hour clock)",
+        "type": "continuous",
+        "role": "reference_only",
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "smb74": {
+        "label": "glucose level",
+        "type": "continuous",
+        "role": "OUTCOME",
+        "derived_as": "elevated_glucose_proxy",
+        "threshold_mg_dl": 200,
+        "CRITICAL_RULES": [
+          "This is the ONLY outcome variable.",
+          "NEVER use as a conditioning/what-if input.",
+          "NEVER impute. If missing, exclude row from outcome_stat only.",
+          "Always label result as 'elevated glucose (proxy)', never 'diabetes'."
+        ],
+        "missing_codes": [9994, 9995, 9996, 9997, 9998, 9999]
+      },
+
+      "mv463a": {
+        "label": "smokes cigarettes",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      },
+
+      "mv463z": {
+        "label": "smokes nothing",
+        "type": "categorical",
+        "role": "feature",
+        "note": "Use with mv463a–mv463x to derive binary 'any_tobacco' flag.",
+        "missing_codes": []
+      },
+
+      "sm619": {
+        "label": "do you drink alcohol",
+        "type": "categorical",
+        "role": "conditioning",
+        "derived_as": "alcohol",
+        "values": {"0": "no", "1": "yes"},
+        "missing_codes": [9]
+      },
+
+      "smb14c": {
+        "label": "30 minutes prior to bp measure: smoked any tobacco product",
+        "type": "categorical",
+        "role": "feature",
+        "missing_codes": [9]
+      }
+    }
+  },
+
+  "derived_columns": {
+    "note": "These columns are created during preprocessing and do not exist in raw DHS files.",
+    "elevated_glucose_proxy": {
+      "source_women": "sb74",
+      "source_men": "smb74",
+      "rule": "1 if glucose_mg_dl >= 200 else 0",
+      "label": "elevated glucose (proxy)",
+      "type": "binary"
+    },
+    "any_tobacco": {
+      "source_women": "v463a through v463x, s711",
+      "source_men": "mv463a through mv463x",
+      "rule": "1 if any tobacco variable is positive, else 0",
+      "type": "binary"
+    },
+    "age_band": {
+      "source": "v012 / mv012",
+      "type": "categorical",
+      "bands_women": ["15-24", "25-34", "35-49"],
+      "bands_men":   ["15-24", "25-34", "35-54"]
+    },
+    "bmi_band": {
+      "source": "v445",
+      "type": "categorical",
+      "bands": ["underweight", "normal", "overweight", "obese"],
+      "note": "Divide raw v445 by 100 before banding."
+    },
+    "hypertension": {
+      "note": "Derived from blood pressure measurement variables. Exact logic TBD after checking BP variable availability in biomarker module.",
+      "type": "binary"
+    }
+  }
+}

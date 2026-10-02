@@ -1,0 +1,157 @@
+# =============================================================================
+# ProxyPatient — Project Configuration
+# Source: NFHS-5 India (2019-21), MoHFW/IIPS, DHS Program
+# DO NOT hardcode any of these values in model or pipeline code.
+# =============================================================================
+
+project:
+  name: "ProxyPatient"
+  version: "1.0.0"
+  description: >
+    Synthetic Patient Scenario Generation for Diabetes Risk Awareness.
+    Strictly generative AI. NOT a diagnostic or clinical tool.
+  outcome_label: "elevated glucose (proxy)"  # Always use this label. Never say "diabetes risk".
+
+# -----------------------------------------------------------------------------
+# RAW DATA PATHS (local only, never committed to git)
+# -----------------------------------------------------------------------------
+data:
+  raw_dir: "raw/"
+  women_file: "raw/IAIR7EDT_extracted/IAIR7EFL.DTA"
+  men_file:   "raw/IAMR7EDT_extracted/IAMR7EFL.DTA"
+  processed_dir: "processed/"
+  schema_file: "docs/schema.json"
+  aggregates_file: "docs/aggregates.json"
+  audit_file: "docs/audit_results.md"
+
+# -----------------------------------------------------------------------------
+# DHS SPECIAL MISSING CODES — convert ALL of these to NaN
+# Source: DHS-VII Recode Manual, Chapter on Missing Values
+# -----------------------------------------------------------------------------
+dhs_missing_codes:
+  - 9994
+  - 9995
+  - 9996
+  - 9997
+  - 9998
+  - 9999
+  # Single-digit missing codes (for categorical variables)
+  - 8     # don't know (some modules)
+  - 9     # missing (some modules)
+
+# -----------------------------------------------------------------------------
+# OUTCOME DEFINITION
+# -----------------------------------------------------------------------------
+outcome:
+  variable_women: "sb74"       # glucose level — Women's file (confirmed in audit)
+  variable_men:   "smb74"      # glucose level — Men's file (confirmed in audit)
+  # DHS stores glucose in mg/dL. Verify unit with codebook before use.
+  threshold_mg_dl: 200         # >= 200 mg/dL => elevated glucose (proxy)
+  outcome_column: "elevated_glucose_proxy"   # name in processed dataframe
+  # RULE: Glucose is NEVER a what-if conditioning input. It is ONLY the outcome.
+  # RULE: Glucose is NEVER imputed. If missing, the row is excluded from outcome_stat.
+
+# -----------------------------------------------------------------------------
+# WHAT-IF CONDITIONING VARIABLES (inputs to the CVAE)
+# These are the variables a user can set in the UI to define a scenario.
+# -----------------------------------------------------------------------------
+conditioning_variables:
+  - sex
+  - age_band
+  - residence        # urban / rural
+  - wealth_quintile
+  - bmi_band
+  - hypertension     # derived from blood pressure readings
+  - tobacco          # any tobacco use
+  - alcohol          # any alcohol use
+
+# -----------------------------------------------------------------------------
+# TRAIN / VAL / TEST SPLIT
+# -----------------------------------------------------------------------------
+split:
+  train: 0.70
+  val:   0.15
+  test:  0.15
+  seed:  42          # Fixed seed. Never change after splits are created.
+  stratify_on: "elevated_glucose_proxy"   # stratified split on outcome
+
+# -----------------------------------------------------------------------------
+# PRIVACY & AGGREGATION RULES
+# -----------------------------------------------------------------------------
+privacy:
+  min_cell_size: 30          # Suppress any aggregate cell with n < 30
+  suppress_value: null       # Replace suppressed cells with null in JSON output
+  # FORBIDDEN: Never print or commit raw rows. Never share processed splits.
+
+# -----------------------------------------------------------------------------
+# BMI ENCODING (DHS stores BMI with 2 implied decimals, e.g. 2150 = 21.50)
+# -----------------------------------------------------------------------------
+bmi:
+  dhs_decimal_shift: 100     # divide raw value by 100 to get true BMI
+  bands:
+    underweight: [0, 18.5]
+    normal:      [18.5, 25.0]
+    overweight:  [25.0, 30.0]
+    obese:       [30.0, 9999]
+
+# -----------------------------------------------------------------------------
+# AGE BANDS
+# -----------------------------------------------------------------------------
+age_bands:
+  women: [[15,24], [25,34], [35,49]]   # Women: 15-49
+  men:   [[15,24], [25,34], [35,54]]   # Men: 15-54
+
+# -----------------------------------------------------------------------------
+# SURVEY WEIGHT
+# DHS stores weight as integer * 1,000,000. Divide by 1,000,000 to get the true weight.
+# -----------------------------------------------------------------------------
+survey_weight:
+  women_col: "v005"
+  men_col:   "mv005"
+  divisor:   1000000
+
+# -----------------------------------------------------------------------------
+# OUTCOME STATISTIC (computed by P3 — outcome_stat function)
+# -----------------------------------------------------------------------------
+outcome_stat:
+  bootstrap_iterations: 1000
+  ci_level: 0.95
+  default_cohort_size: 1000  # n to generate per scenario
+
+# -----------------------------------------------------------------------------
+# MODEL
+# -----------------------------------------------------------------------------
+model:
+  type: "CVAE"
+  latent_dim: 32
+  hidden_dims: [128, 64]
+  kl_annealing_epochs: 10
+  seed: 42
+
+# -----------------------------------------------------------------------------
+# FASTAPI BACKEND
+# -----------------------------------------------------------------------------
+api:
+  host: "0.0.0.0"
+  port: 8000
+  endpoints:
+    - GET  /health
+    - GET  /schema
+    - GET  /profiles
+    - POST /generate
+    - POST /compare
+    - GET  /validation
+    - POST /parse      # optional BERT parser (P3)
+
+# -----------------------------------------------------------------------------
+# EXTERNAL VALIDATION DATASET (NMB-2017)
+# NEVER merge with NFHS-5. Used ONLY for external fidelity check by P3.
+# DOI: 10.17632/twp8xw6p25.1 (CC0)
+# -----------------------------------------------------------------------------
+external_validation:
+  name: "NMB-2017"
+  measure: "HbA1c"
+  population: "high-risk Indian adults (n=7496)"
+  note: >
+    Different population and different glucose measure from NFHS-5.
+    Use only for external sanity check, never merge rows with NFHS-5.
