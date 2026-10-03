@@ -1,4 +1,4 @@
-﻿# RAW DATA - NEVER COMMIT (DHS License)
+# RAW DATA - NEVER COMMIT (DHS License)
 raw/
 *.DTA
 *.dta
@@ -6,7 +6,7 @@ raw/
 *.gz
 *.tar
 
-# PROCESSED INDIVIDUAL-LEVEL DATA - TOO LARGE FOR GITHUB
+# PROCESSED INDIVIDUAL-LEVEL DATA — V1 (too large, share privately)
 processed/train.parquet
 processed/val.parquet
 processed/test.parquet
@@ -16,6 +16,27 @@ processed/men_clean.parquet
 processed/dae_imputed_train.parquet
 processed/dae_imputed_val.parquet
 processed/dae_imputed_combined.parquet
+processed/dae_weights.pt
+processed/dae_fit_stats.pkl
+processed/preprocess.pkl
+
+# V2 PROCESSED DATA — git-ignored, share privately via handover_v2/
+processed/train_v2.parquet
+processed/val_v2.parquet
+processed/test_v2.parquet
+processed/combined_clean_v2.parquet
+processed/women_clean_v2.parquet
+processed/men_clean_v2.parquet
+processed/dae_imputed_train_v2.parquet
+processed/dae_imputed_val_v2.parquet
+processed/dae_imputed_test_v2.parquet
+processed/dae_imputed_combined_v2.parquet
+processed/dae_weights_v2.pt
+processed/dae_fit_stats_v2.pkl
+processed/preprocess_v2.pkl
+
+# HANDOVER PACKAGE (entire folder — never commit)
+handover_v2/
 
 # Python cache
 __pycache__/
@@ -41,4 +62,11 @@ Thumbs.db
 .idea/
 *.log
 
+# Local handoff docs — never commit
 HANDOFF_P1.md
+HANDOFF_P1_v2.md
+
+# Temp audit scripts — never commit
+_audit_f1_bp.py
+_audit_f2_bmi.py
+_save_imputed.py
