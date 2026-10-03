@@ -196,7 +196,14 @@ def impute(df, model, fit_stats, bmi_measured_col="bmi_measured"):
             enc_val = X_hat[missing_mask.values, n_cont + i] * n_cats
             rounded = np.clip(np.round(enc_val), 0, n_cats - 1).astype(int)
             inv_map = {v: k for k, v in fit_stats["cat_maps"][col].items()}
-            df_out.loc[missing_mask, col] = [inv_map.get(r, list(inv_map.values())[-1]) for r in rounded]
+            imputed_vals = [inv_map.get(r, list(inv_map.values())[-1]) for r in rounded]
+            # Convert back to original dtype (e.g. '1.0' → 1.0 for float columns)
+            orig_dtype = df_out[col].dtype
+            try:
+                imputed_vals = pd.to_numeric(imputed_vals, errors='raise').astype(orig_dtype)
+            except (ValueError, TypeError):
+                pass  # leave as strings for genuine string categories
+            df_out.loc[missing_mask, col] = imputed_vals
 
     return df_out
 
@@ -315,9 +322,20 @@ def main():
     fix_dtypes(train_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_train_v2.parquet"), index=False)
     fix_dtypes(val_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_val_v2.parquet"), index=False)
     fix_dtypes(combined_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_combined_v2.parquet"), index=False)
-    print("  Saved dae_imputed_train_v2, dae_imputed_val_v2, dae_imputed_combined_v2")
+    print("  Saved dae_imputed_train_v2, dae_imputed_val_v2, dae_imputed_combined_v2", flush=True)
 
-    print("\ntrain_dae_v2.py DONE.")
+    # ── Verify all saves ───────────────────────────────────────────────────────
+    print("\n=== SAVE VERIFICATION ===", flush=True)
+    for fname in ["dae_weights_v2.pt", "dae_fit_stats_v2.pkl",
+                  "dae_imputed_train_v2.parquet", "dae_imputed_val_v2.parquet",
+                  "dae_imputed_combined_v2.parquet"]:
+        fp = os.path.join(PROC_DIR, fname)
+        if os.path.exists(fp):
+            print(f"  [OK] {fname}: {os.path.getsize(fp):,} bytes", flush=True)
+        else:
+            print(f"  [FAIL] {fname}: NOT FOUND at {fp}", flush=True)
+
+    print("\ntrain_dae_v2.py DONE.", flush=True)
 
 if __name__ == "__main__":
     main()

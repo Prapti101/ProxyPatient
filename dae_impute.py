@@ -120,7 +120,14 @@ def impute_dae(df: pd.DataFrame,
             enc_val = X_hat[missing.values, n_cont + i] * n_cats
             rounded = np.clip(np.round(enc_val), 0, n_cats - 1).astype(int)
             inv_map = {v: k for k, v in fit_stats["cat_maps"][col].items()}
-            df_out.loc[missing, col] = [inv_map.get(r, list(inv_map.values())[-1]) for r in rounded]
+            imputed_vals = [inv_map.get(r, list(inv_map.values())[-1]) for r in rounded]
+            # Convert back to original dtype (e.g. '1.0' string → 1.0 float)
+            orig_dtype = df_out[col].dtype
+            try:
+                imputed_vals = pd.to_numeric(imputed_vals, errors='raise').astype(orig_dtype)
+            except (ValueError, TypeError):
+                pass  # genuine string categories — leave as-is
+            df_out.loc[missing, col] = imputed_vals
 
     # Recompute bmi_band where bmi_measured=1
     if "bmi" in df_out.columns and "bmi_measured" in df_out.columns:
