@@ -35,16 +35,19 @@ outcome statistics for health awareness and research purposes.
 
 ---
 
-## Project Pipeline
+## Project Pipeline (v2 — current)
 
 ```
-NFHS-5 India Dataset
+NFHS-5 India Dataset + Household Member File (IAPR7EDT)
        ↓
-  Preprocessing (preprocess.py)
+  Preprocessing v2 (preprocess_v2.py)
+  [BP variables, men's BMI from household file, bmi_measured flag]
        ↓
-  Stratified Split + Aggregates (split_and_aggregate.py)
+  Stratified Split + Aggregates v2 (split_and_aggregate_v2.py)
+  [SHA-256 verified: same row membership as v1]
        ↓
-  Denoising Autoencoder — covariate imputation (train_dae.py)
+  Denoising Autoencoder v2 (train_dae_v2.py)
+  [Sporadic covariates only. BMI/BP not imputed.]
        ↓
   CVAE Generative Model ← P2 builds this
        ↓

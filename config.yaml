@@ -6,7 +6,7 @@
 
 project:
   name: "ProxyPatient"
-  version: "1.0.0"
+  version: "2.0.0"   # v2: BP/hypertension + men's BMI from household file
   description: >
     Synthetic Patient Scenario Generation for Diabetes Risk Awareness.
     Strictly generative AI. NOT a diagnostic or clinical tool.
@@ -17,12 +17,14 @@ project:
 # -----------------------------------------------------------------------------
 data:
   raw_dir: "raw/"
-  women_file: "raw/IAIR7EDT_extracted/IAIR7EFL.DTA"
-  men_file:   "raw/IAMR7EDT_extracted/IAMR7EFL.DTA"
+  women_file:     "raw/IAIR7EDT_extracted/IAIR7EFL.DTA"
+  men_file:       "raw/IAMR7EDT_extracted/IAMR7EFL.DTA"
+  household_file: "raw/IAPR7EDT_extracted/IAPR7EFL.DTA"   # v2: men's BMI + women's height
   processed_dir: "processed/"
-  schema_file: "docs/schema.json"
-  aggregates_file: "docs/aggregates.json"
-  audit_file: "docs/audit_results.md"
+  schema_file:    "docs/schema.json"
+  aggregates_file: "docs/aggregates_v2.json"   # v2
+  audit_file:     "docs/audit_results.md"
+  handover_v2_dir: "handover_v2/"   # private, git-ignored
 
 # -----------------------------------------------------------------------------
 # DHS SPECIAL MISSING CODES — convert ALL of these to NaN
@@ -38,6 +40,16 @@ dhs_missing_codes:
   # Single-digit missing codes (for categorical variables)
   - 8     # don't know (some modules)
   - 9     # missing (some modules)
+
+# BP-specific missing codes (3-digit, for readings in 0-300 mmHg range)
+dhs_missing_codes_bp:
+  - 994
+  - 995
+  - 996
+  - 997
+  - 998
+  - 999
+  - 0     # 0 = not measured for BP readings
 
 # -----------------------------------------------------------------------------
 # OUTCOME DEFINITION
@@ -61,9 +73,45 @@ conditioning_variables:
   - residence        # urban / rural
   - wealth_quintile
   - bmi_band
-  - hypertension     # derived from blood pressure readings
+  - hypertension     # measured: systolic>=140 OR diastolic>=90 OR on BP medicine (v2)
   - tobacco          # any tobacco use
   - alcohol          # any alcohol use
+
+# What-if option definitions (used by backend /schema endpoint and UI)
+# These are the exact allowed values for each conditioning variable.
+whatif_options:
+  sex:
+    type: binary
+    options: ["0", "1"]
+    labels: {0: "Female", 1: "Male"}
+  age_band:
+    type: categorical
+    women_options: ["15-24", "25-34", "35-49"]
+    men_options:   ["15-24", "25-34", "35-54"]
+  residence:
+    type: categorical
+    options: ["urban", "rural"]
+  wealth_quintile:
+    type: ordinal
+    options: ["1", "2", "3", "4", "5"]
+    labels: {1: "Poorest", 2: "Poorer", 3: "Middle", 4: "Richer", 5: "Richest"}
+  bmi_band:
+    type: categorical
+    options: ["underweight", "normal", "overweight", "obese"]
+    note: "NaN where bmi_measured=0. Conditioning on bmi_band requires bmi_measured=1."
+  hypertension:
+    type: binary
+    options: ["0", "1"]
+    labels: {0: "Not hypertensive", 1: "Hypertensive or on BP medication"}
+    definition: "systolic_avg >= 140 OR diastolic_avg >= 90 OR on_bp_medication == 1"
+  tobacco:
+    type: binary
+    options: ["0", "1"]
+    labels: {0: "No tobacco", 1: "Any tobacco use"}
+  alcohol:
+    type: binary
+    options: ["0", "1"]
+    labels: {0: "No alcohol", 1: "Drinks alcohol"}
 
 # -----------------------------------------------------------------------------
 # TRAIN / VAL / TEST SPLIT

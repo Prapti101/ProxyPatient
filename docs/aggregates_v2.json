@@ -1,0 +1,777 @@
+{
+  "_meta": {
+    "source": "NFHS-5 India 2019-21",
+    "outcome": "elevated_glucose_proxy",
+    "threshold_mg_dl": 200,
+    "rule": ">= 200 mg/dL (inclusive)",
+    "min_cell_size": 30,
+    "version": "v2",
+    "created": "2026-10-03T16:19:49.491104"
+  },
+  "overall": {
+    "n": 798622,
+    "rate": 0.028773,
+    "suppressed": false
+  },
+  "by_sex": {
+    "0": {
+      "n": 702492,
+      "rate": 0.027997,
+      "suppressed": false
+    },
+    "1": {
+      "n": 96130,
+      "rate": 0.034443,
+      "suppressed": false
+    }
+  },
+  "by_age_band": {
+    "15-24": {
+      "n": 262784,
+      "rate": 0.01983,
+      "suppressed": false
+    },
+    "25-34": {
+      "n": 240268,
+      "rate": 0.022521,
+      "suppressed": false
+    },
+    "35-49": {
+      "n": 254906,
+      "rate": 0.040238,
+      "suppressed": false
+    },
+    "35-54": {
+      "n": 40664,
+      "rate": 0.051643,
+      "suppressed": false
+    }
+  },
+  "by_residence": {
+    "rural": {
+      "n": 602120,
+      "rate": 0.023298,
+      "suppressed": false
+    },
+    "urban": {
+      "n": 196502,
+      "rate": 0.045552,
+      "suppressed": false
+    }
+  },
+  "by_wealth_quintile": {
+    "1": {
+      "n": 164897,
+      "rate": 0.017999,
+      "suppressed": false
+    },
+    "2": {
+      "n": 177911,
+      "rate": 0.020555,
+      "suppressed": false
+    },
+    "3": {
+      "n": 168013,
+      "rate": 0.025528,
+      "suppressed": false
+    },
+    "4": {
+      "n": 154429,
+      "rate": 0.035447,
+      "suppressed": false
+    },
+    "5": {
+      "n": 133372,
+      "rate": 0.049418,
+      "suppressed": false
+    }
+  },
+  "by_education": {
+    "0": {
+      "n": 173876,
+      "rate": 0.029245,
+      "suppressed": false
+    },
+    "1": {
+      "n": 93868,
+      "rate": 0.029733,
+      "suppressed": false
+    },
+    "2": {
+      "n": 416159,
+      "rate": 0.026793,
+      "suppressed": false
+    },
+    "3": {
+      "n": 114719,
+      "rate": 0.034458,
+      "suppressed": false
+    }
+  },
+  "by_tobacco": {
+    "no_tobacco": {
+      "n": 711569,
+      "rate": 0.029046,
+      "suppressed": false
+    },
+    "tobacco": {
+      "n": 87053,
+      "rate": 0.026547,
+      "suppressed": false
+    }
+  },
+  "by_alcohol": {
+    "alcohol": {
+      "n": 38121,
+      "rate": 0.028751,
+      "suppressed": false
+    },
+    "no_alcohol": {
+      "n": 760501,
+      "rate": 0.028774,
+      "suppressed": false
+    }
+  },
+  "by_state": {
+    "1": {
+      "n": 25354,
+      "rate": 0.011754,
+      "suppressed": false
+    },
+    "2": {
+      "n": 11612,
+      "rate": 0.014123,
+      "suppressed": false
+    },
+    "3": {
+      "n": 23501,
+      "rate": 0.054721,
+      "suppressed": false
+    },
+    "4": {
+      "n": 761,
+      "rate": 0.089356,
+      "suppressed": false
+    },
+    "5": {
+      "n": 14181,
+      "rate": 0.031874,
+      "suppressed": false
+    },
+    "6": {
+      "n": 24021,
+      "rate": 0.039965,
+      "suppressed": false
+    },
+    "7": {
+      "n": 11945,
+      "rate": 0.079196,
+      "suppressed": false
+    },
+    "8": {
+      "n": 48252,
+      "rate": 0.013927,
+      "suppressed": false
+    },
+    "9": {
+      "n": 101224,
+      "rate": 0.036385,
+      "suppressed": false
+    },
+    "10": {
+      "n": 45932,
+      "rate": 0.020966,
+      "suppressed": false
+    },
+    "11": {
+      "n": 3555,
+      "rate": 0.031786,
+      "suppressed": false
+    },
+    "12": {
+      "n": 22086,
+      "rate": 0.011863,
+      "suppressed": false
+    },
+    "13": {
+      "n": 10939,
+      "rate": 0.01033,
+      "suppressed": false
+    },
+    "14": {
+      "n": 9050,
+      "rate": 0.014586,
+      "suppressed": false
+    },
+    "15": {
+      "n": 8254,
+      "rate": 0.018294,
+      "suppressed": false
+    },
+    "16": {
+      "n": 8141,
+      "rate": 0.027392,
+      "suppressed": false
+    },
+    "17": {
+      "n": 14655,
+      "rate": 0.015694,
+      "suppressed": false
+    },
+    "18": {
+      "n": 39112,
+      "rate": 0.024877,
+      "suppressed": false
+    },
+    "19": {
+      "n": 23827,
+      "rate": 0.033282,
+      "suppressed": false
+    },
+    "20": {
+      "n": 29084,
+      "rate": 0.033833,
+      "suppressed": false
+    },
+    "21": {
+      "n": 31188,
+      "rate": 0.025907,
+      "suppressed": false
+    },
+    "22": {
+      "n": 31626,
+      "rate": 0.01562,
+      "suppressed": false
+    },
+    "23": {
+      "n": 52846,
+      "rate": 0.035443,
+      "suppressed": false
+    },
+    "24": {
+      "n": 37901,
+      "rate": 0.017519,
+      "suppressed": false
+    },
+    "25": {
+      "n": 3041,
+      "rate": 0.025649,
+      "suppressed": false
+    },
+    "27": {
+      "n": 37785,
+      "rate": 0.021411,
+      "suppressed": false
+    },
+    "28": {
+      "n": 12134,
+      "rate": 0.046728,
+      "suppressed": false
+    },
+    "29": {
+      "n": 33532,
+      "rate": 0.027079,
+      "suppressed": false
+    },
+    "30": {
+      "n": 2291,
+      "rate": 0.04845,
+      "suppressed": false
+    },
+    "31": {
+      "n": 1336,
+      "rate": 0.01497,
+      "suppressed": false
+    },
+    "32": {
+      "n": 12052,
+      "rate": 0.047793,
+      "suppressed": false
+    },
+    "33": {
+      "n": 28149,
+      "rate": 0.042772,
+      "suppressed": false
+    },
+    "34": {
+      "n": 4125,
+      "rate": 0.034424,
+      "suppressed": false
+    },
+    "35": {
+      "n": 2706,
+      "rate": 0.021803,
+      "suppressed": false
+    },
+    "36": {
+      "n": 29817,
+      "rate": 0.039977,
+      "suppressed": false
+    },
+    "37": {
+      "n": 2607,
+      "rate": 0.003069,
+      "suppressed": false
+    }
+  },
+  "by_hypertension": {
+    "0.0": {
+      "n": 691823,
+      "rate": 0.014586,
+      "suppressed": false
+    },
+    "1.0": {
+      "n": 97413,
+      "rate": 0.049213,
+      "suppressed": false
+    }
+  },
+  "by_bmi_band": {
+    "normal": {
+      "n": 477941,
+      "rate": 0.014692,
+      "suppressed": false
+    },
+    "obese": {
+      "n": 40149,
+      "rate": 0.06167,
+      "suppressed": false
+    },
+    "overweight": {
+      "n": 133014,
+      "rate": 0.036312,
+      "suppressed": false
+    },
+    "underweight": {
+      "n": 138360,
+      "rate": 0.011116,
+      "suppressed": false
+    }
+  },
+  "sex_by_residence": {
+    "0": {
+      "rural": {
+        "n": 530516,
+        "rate": 0.022648,
+        "suppressed": false
+      },
+      "urban": {
+        "n": 171976,
+        "rate": 0.0445,
+        "suppressed": false
+      }
+    },
+    "1": {
+      "rural": {
+        "n": 71604,
+        "rate": 0.028113,
+        "suppressed": false
+      },
+      "urban": {
+        "n": 24526,
+        "rate": 0.052923,
+        "suppressed": false
+      }
+    }
+  },
+  "sex_by_age_band": {
+    "0": {
+      "15-24": {
+        "n": 233448,
+        "rate": 0.01994,
+        "suppressed": false
+      },
+      "25-34": {
+        "n": 214138,
+        "rate": 0.02221,
+        "suppressed": false
+      },
+      "35-49": {
+        "n": 254906,
+        "rate": 0.040238,
+        "suppressed": false
+      }
+    },
+    "1": {
+      "15-24": {
+        "n": 29336,
+        "rate": 0.018953,
+        "suppressed": false
+      },
+      "25-34": {
+        "n": 26130,
+        "rate": 0.025067,
+        "suppressed": false
+      },
+      "35-54": {
+        "n": 40664,
+        "rate": 0.051643,
+        "suppressed": false
+      }
+    }
+  },
+  "sex_by_hypertension": {
+    "0": {
+      "0.0": {
+        "n": 614162,
+        "rate": 0.014281,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 80095,
+        "rate": 0.047593,
+        "suppressed": false
+      }
+    },
+    "1": {
+      "0.0": {
+        "n": 77661,
+        "rate": 0.016997,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 17318,
+        "rate": 0.056704,
+        "suppressed": false
+      }
+    }
+  },
+  "age_band_by_hypertension": {
+    "15-24": {
+      "0.0": {
+        "n": 247746,
+        "rate": 0.008162,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 11537,
+        "rate": 0.012828,
+        "suppressed": false
+      }
+    },
+    "25-34": {
+      "0.0": {
+        "n": 215155,
+        "rate": 0.011466,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 22351,
+        "rate": 0.025279,
+        "suppressed": false
+      }
+    },
+    "35-49": {
+      "0.0": {
+        "n": 200107,
+        "rate": 0.023602,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 52118,
+        "rate": 0.061956,
+        "suppressed": false
+      }
+    },
+    "35-54": {
+      "0.0": {
+        "n": 28815,
+        "rate": 0.030505,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 11407,
+        "rate": 0.074691,
+        "suppressed": false
+      }
+    }
+  },
+  "bmi_band_by_hypertension": {
+    "normal": {
+      "0.0": {
+        "n": 427249,
+        "rate": 0.011267,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 49339,
+        "rate": 0.032591,
+        "suppressed": false
+      }
+    },
+    "obese": {
+      "0.0": {
+        "n": 28502,
+        "rate": 0.043611,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 11507,
+        "rate": 0.100721,
+        "suppressed": false
+      }
+    },
+    "overweight": {
+      "0.0": {
+        "n": 105047,
+        "rate": 0.026541,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 27565,
+        "rate": 0.066788,
+        "suppressed": false
+      }
+    },
+    "underweight": {
+      "0.0": {
+        "n": 129282,
+        "rate": 0.009027,
+        "suppressed": false
+      },
+      "1.0": {
+        "n": 8611,
+        "rate": 0.016723,
+        "suppressed": false
+      }
+    }
+  },
+  "hypertension_by_tobacco": {
+    "0.0": {
+      "no_tobacco": {
+        "n": 620724,
+        "rate": 0.014525,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 71099,
+        "rate": 0.01512,
+        "suppressed": false
+      }
+    },
+    "1.0": {
+      "no_tobacco": {
+        "n": 82156,
+        "rate": 0.050112,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 15257,
+        "rate": 0.044373,
+        "suppressed": false
+      }
+    }
+  },
+  "sex_by_wealth": {
+    "0": {
+      "1": {
+        "n": 146048,
+        "rate": 0.017878,
+        "suppressed": false
+      },
+      "2": {
+        "n": 156396,
+        "rate": 0.020128,
+        "suppressed": false
+      },
+      "3": {
+        "n": 147462,
+        "rate": 0.024637,
+        "suppressed": false
+      },
+      "4": {
+        "n": 135440,
+        "rate": 0.034163,
+        "suppressed": false
+      },
+      "5": {
+        "n": 117146,
+        "rate": 0.048222,
+        "suppressed": false
+      }
+    },
+    "1": {
+      "1": {
+        "n": 18849,
+        "rate": 0.01894,
+        "suppressed": false
+      },
+      "2": {
+        "n": 21515,
+        "rate": 0.023658,
+        "suppressed": false
+      },
+      "3": {
+        "n": 20551,
+        "rate": 0.031921,
+        "suppressed": false
+      },
+      "4": {
+        "n": 18989,
+        "rate": 0.044605,
+        "suppressed": false
+      },
+      "5": {
+        "n": 16226,
+        "rate": 0.058055,
+        "suppressed": false
+      }
+    }
+  },
+  "age_by_tobacco": {
+    "15-24": {
+      "no_tobacco": {
+        "n": 249969,
+        "rate": 0.020118,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 12815,
+        "rate": 0.014202,
+        "suppressed": false
+      }
+    },
+    "25-34": {
+      "no_tobacco": {
+        "n": 214150,
+        "rate": 0.023147,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 26118,
+        "rate": 0.017383,
+        "suppressed": false
+      }
+    },
+    "35-49": {
+      "no_tobacco": {
+        "n": 229368,
+        "rate": 0.041571,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 25538,
+        "rate": 0.028272,
+        "suppressed": false
+      }
+    },
+    "35-54": {
+      "no_tobacco": {
+        "n": 18082,
+        "rate": 0.063433,
+        "suppressed": false
+      },
+      "tobacco": {
+        "n": 22582,
+        "rate": 0.042202,
+        "suppressed": false
+      }
+    }
+  },
+  "age_by_alcohol": {
+    "15-24": {
+      "alcohol": {
+        "n": 5248,
+        "rate": 0.014482,
+        "suppressed": false
+      },
+      "no_alcohol": {
+        "n": 257536,
+        "rate": 0.019939,
+        "suppressed": false
+      }
+    },
+    "25-34": {
+      "alcohol": {
+        "n": 11865,
+        "rate": 0.019553,
+        "suppressed": false
+      },
+      "no_alcohol": {
+        "n": 228403,
+        "rate": 0.022675,
+        "suppressed": false
+      }
+    },
+    "35-49": {
+      "alcohol": {
+        "n": 7450,
+        "rate": 0.020671,
+        "suppressed": false
+      },
+      "no_alcohol": {
+        "n": 247456,
+        "rate": 0.040827,
+        "suppressed": false
+      }
+    },
+    "35-54": {
+      "alcohol": {
+        "n": 13558,
+        "rate": 0.046762,
+        "suppressed": false
+      },
+      "no_alcohol": {
+        "n": 27106,
+        "rate": 0.054084,
+        "suppressed": false
+      }
+    }
+  },
+  "residence_by_wealth": {
+    "rural": {
+      "1": {
+        "n": 158981,
+        "rate": 0.017713,
+        "suppressed": false
+      },
+      "2": {
+        "n": 162508,
+        "rate": 0.019654,
+        "suppressed": false
+      },
+      "3": {
+        "n": 134515,
+        "rate": 0.023328,
+        "suppressed": false
+      },
+      "4": {
+        "n": 95370,
+        "rate": 0.030188,
+        "suppressed": false
+      },
+      "5": {
+        "n": 50746,
+        "rate": 0.039432,
+        "suppressed": false
+      }
+    },
+    "urban": {
+      "1": {
+        "n": 5916,
+        "rate": 0.025693,
+        "suppressed": false
+      },
+      "2": {
+        "n": 15403,
+        "rate": 0.030059,
+        "suppressed": false
+      },
+      "3": {
+        "n": 33498,
+        "rate": 0.03436,
+        "suppressed": false
+      },
+      "4": {
+        "n": 59059,
+        "rate": 0.043939,
+        "suppressed": false
+      },
+      "5": {
+        "n": 82626,
+        "rate": 0.055552,
+        "suppressed": false
+      }
+    }
+  }
+}
