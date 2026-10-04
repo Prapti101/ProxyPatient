@@ -279,6 +279,7 @@ def tstr(train_real, test_real, gen, spec, thr, seed):
 # ── driver ───────────────────────────────────────────────────────────────────
 
 def run(args, cfg):
+    from models.privacy import safe_public_output, suppress_count
     thr = float(cfg["outcome"]["threshold_mg_dl"])
     spec = build_spec(cfg, use_state=False)
     eval_split = "test" if args.final_test else "val"
@@ -319,6 +320,15 @@ def run(args, cfg):
     for g in gens.values():
         filled &= g["glucose_raw"].notna().to_numpy()
     real = ev_u[filled].reset_index(drop=True)
+    if len(real) < min_cell(cfg) or len(tr_u) < min_cell(cfg):
+        res = {"_meta": {"status": "insufficient coverage", "mock": bool(args.mock),
+                         "n_eval_rows_requested": suppress_count(len(ev_u)),
+                         "n_eval_rows_all_models_filled": suppress_count(len(real))},
+               "models": {name: {"status": "insufficient coverage", "metrics": None} for name in gens}}
+        write_json(res, args.out_json)
+        with open(os.path.splitext(args.out_json)[0] + ".md", "w", encoding="utf-8") as f:
+            f.write("# Evaluation: insufficient coverage\nStatistics suppressed (fewer than 30 respondents).\n")
+        return res
     res = {"_meta": {"created": datetime.now(timezone.utc).isoformat(), "mock": bool(args.mock),
                      "split": eval_split, "n_eval_rows_requested": int(len(ev_u)),
                      "n_eval_rows_all_models_filled": int(filled.sum()),
@@ -339,6 +349,7 @@ def run(args, cfg):
             "nearest_record": dcr(tr_u, real, g, spec, args.seed),
             "tstr": tstr(tr_u, real, g, spec, thr, args.seed),
         }
+    res = safe_public_output(res)
     write_json(res, args.out_json)
     with open(os.path.splitext(args.out_json)[0] + ".md", "w", encoding="utf-8") as f:
         f.write(summary_md(res))

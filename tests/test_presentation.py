@@ -134,3 +134,34 @@ def test_wilson_interval_handles_extreme_outcomes(glucose, expected):
     assert r['rate'] == expected
     assert r['ci_low'] < r['ci_high'] and r['ci_low'] <= expected <= r['ci_high']
     assert r['monte_carlo_interval']['method'] == 'Wilson'
+
+
+def test_small_counts_and_statistics_are_suppressed():
+    from models.privacy import suppress_count, suppress_stat, safe_public_output, small_count_paths
+    assert suppress_count(0) is None and suppress_count(29) is None and suppress_count(30) == 30
+    assert suppress_stat(5., 29) is None
+    report = safe_public_output({'n': 3, 'n_states': 2, 'n_train': 100, 'steps': [{'n_excluded': 1}]})
+    assert report['n'] is None and report['n_states'] == 2
+    assert not small_count_paths(report)
+
+
+def test_dae_benchmark_rejects_failed_predictions_and_suppresses_small_support():
+    from models.check_dae_benchmark import benchmark
+    frame = make_mock_v2(1000, imputed=False)
+    def broken(df):
+        df = df.copy()
+        df['waist_cm'] = np.nan
+        return df
+    with pytest.raises(ValueError, match='failed predictions'):
+        benchmark(frame, frame, broken)
+    res = benchmark(frame.iloc[:10], frame.iloc[:10], lambda x: x)
+    assert all(r['status'] == 'insufficient coverage' and r['rmse_dae'] is None and r['n_masked'] is None for r in res.values())
+
+
+def test_mock_training_public_outputs_have_no_small_counts(mock_model_dir):
+    import json
+    from models.privacy import small_count_paths
+    for path in mock_model_dir.glob('*.json'):
+        assert not small_count_paths(json.loads(path.read_text())), path.name
+    log = json.loads((mock_model_dir/'cvae_train_log.json').read_text())
+    assert log['scope_train']['steps'][0]['n_excluded_men'] is None or log['scope_train']['steps'][0]['n_excluded_men'] >= 30

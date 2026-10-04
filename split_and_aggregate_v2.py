@@ -34,7 +34,7 @@ def safe_rate(sub, col):
     n = len(sub)
     pos = sub[col].sum()
     if n < MIN_CELL:
-        return {"n": int(n), "rate": None, "suppressed": True}
+        return {"n": None, "rate": None, "suppressed": True}
     rate = float(pos / n) if n > 0 else None
     return {"n": int(n), "rate": round(rate, 6) if rate is not None else None, "suppressed": False}
 
@@ -164,7 +164,7 @@ def main():
         pos = sub[OUTCOME_COL].sum()
         n   = len(sub)
         if n < MIN_CELL:
-            return {"n": int(n), "rate": None, "suppressed": True}
+            return {"n": None, "rate": None, "suppressed": True}
         return {"n": int(n), "rate": round(float(pos/n), 6), "suppressed": False}
 
     aggs = {

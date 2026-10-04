@@ -103,8 +103,9 @@ def train(args, cfg):
     require_sex_support(a_tr, cfg, mock=args.mock)
     if len(a_va.cont) < 30:
         raise ValueError("Insufficient complete validation rows")
-    print(f"train rows in scope: {len(a_tr.cont):,} (dropped incomplete: {a_tr.n_dropped:,}); "
-          f"val: {len(a_va.cont):,} (dropped {a_va.n_dropped:,})")
+    from models.privacy import suppress_count, safe_public_output
+    print(f"Encoded train rows: {suppress_count(len(a_tr.cont))}; excluded incomplete: {suppress_count(a_tr.n_dropped)}; "
+          f"validation rows: {suppress_count(len(a_va.cont))}; excluded: {suppress_count(a_va.n_dropped)}")
 
     model = build_model(spec, mcfg, variant=args.variant, glucose_head=args.glucose_head).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=float(mcfg.get("lr", 1e-3)))
@@ -118,7 +119,8 @@ def train(args, cfg):
            "device": device, "variant": args.variant, "glucose_head": args.glucose_head,
            "n_train": len(a_tr.cont), "n_val": len(a_va.cont),
            "dropped_incomplete": {"train": a_tr.n_dropped, "val": a_va.n_dropped},
-           "scope_train": scope_tr, "scope_val": scope_va, "epochs": []}
+           "scope_train": scope_tr, "scope_val": scope_va,
+           "encoded_per_sex": a_tr.support, "encoding_exclusions": a_tr.exclusions, "epochs": []}
     best, best_state, bad_epochs = -np.inf, None, 0
     rng = np.random.default_rng(args.seed)
     t0 = time.time()
@@ -170,6 +172,7 @@ def train(args, cfg):
     profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec)
     profiles["fingerprint"] = ckpt["fingerprint"]
     write_json(profiles, os.path.join(args.out_dir, "supported_profiles.json"))
+    log = safe_public_output(log)
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
     print(f"saved weights -> {weights} (git-ignored; do not commit)")

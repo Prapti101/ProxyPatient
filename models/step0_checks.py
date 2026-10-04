@@ -72,8 +72,8 @@ def check_manifest(ddir, final_test):
 
 def cnt(x, k):
     """A count is itself a cell: show 0, the count if >= k, else '<k'."""
-    x = int(x)
-    return x if x == 0 or x >= k else f"<{k}"
+    from models.privacy import suppress_count
+    return None if x is None else suppress_count(x, k)
 
 
 def rate_table(df, cols, y, k):
@@ -91,7 +91,7 @@ def rate_table(df, cols, y, k):
 
 def split_section(name, raw, imp, cfg, k):
     out, md = {}, [f"## Split: {name}", ""]
-    md.append(f"Shapes: raw {raw.shape if raw is not None else 'n/a'}, DAE-imputed {imp.shape}.")
+    md.append(f"Rows: raw {cnt(len(raw), k) if raw is not None else None}, DAE-imputed {cnt(len(imp), k)}; columns: {len(imp.columns)}.")
     md.append("")
     cols = list(imp.columns)
     rows = []
@@ -132,12 +132,12 @@ def split_section(name, raw, imp, cfg, k):
             v = as_num(df.loc[m, col]).dropna()
             if len(v) >= k:
                 cav.append([f"{lab}: {col} P1/P50/P99", " / ".join(f"{x:.1f}" for x in v.quantile([.01, .5, .99]))])
-    med = g.median()
+    med = g.median() if g.notna().sum() >= k else np.nan
     unit = "mg/dL" if med > 40 else ("mmol/L?" if med < 15 else "UNCLEAR")
-    cav.append(["glucose median (all) -> unit verdict", f"{med:.1f} -> {unit}"])
+    cav.append(["glucose median (all) -> unit verdict", f"{med:.1f} -> {unit}" if np.isfinite(med) else None])
     sw = as_num(df["sex"]).value_counts().to_dict()
     cav.append(["glucose known: women + men == total known?",
-                f"{int((g.notna() & (sex == 0)).sum()) + int((g.notna() & (sex == 1)).sum())} vs {int(g.notna().sum())}"])
+                f"{cnt(int((g.notna() & (sex == 0)).sum()), k)} + {cnt(int((g.notna() & (sex == 1)).sum()), k)} vs {cnt(int(g.notna().sum()), k)}"])
     cav.append(["sex values present", sorted(str(int(x)) for x in sw)])
     ep = as_num(df["elevated_glucose_proxy"])
     both = g.notna() & ep.notna()
@@ -240,7 +240,7 @@ def main(argv=None):
     rows = rate_table(cf, spec.cond_names, y, k)
     res["rates"] = rows
     md += ["## Outcome: elevated glucose (proxy) rate, single variables and pairs (in-scope train, unweighted)", "",
-           f"Overall: n={int(y.notna().sum()):,}, rate={float(y.mean()) * 100:.3f}%.", "",
+           f"Overall: n={cnt(y.notna().sum(), k)}, rate={round(float(y.mean()) * 100, 3) if y.notna().sum() >= k else None}%.", "",
            md_table(rows, ["variables", "cell", "n", "rate %"], "suppressed (n<30)"), ""]
     st = as_num(tr["state"]).value_counts().sort_index()
     small = [[int(s), int(n) if n >= k else None] for s, n in st.items() if n < 500]
@@ -250,6 +250,8 @@ def main(argv=None):
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("\n".join(md))
+    from models.privacy import safe_public_output
+    res = safe_public_output(res, k)
     write_json(res, os.path.splitext(args.out)[0] + ".json")
     print(f"wrote {args.out}")
     return res

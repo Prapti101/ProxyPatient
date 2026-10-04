@@ -33,7 +33,10 @@ def load_config(path: Optional[str] = None) -> dict:
 
 
 def min_cell(cfg: dict) -> int:
-    return int(cfg.get("privacy", {}).get("min_cell_size", 30))
+    value = int(cfg.get("privacy", {}).get("min_cell_size", 30))
+    if value < 30:
+        raise ValueError("privacy.min_cell_size cannot be below 30")
+    return value
 
 
 def threshold(cfg: dict) -> float:
@@ -190,7 +193,8 @@ def to_jsonable(o):
 def write_json(obj, path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(to_jsonable(obj), f, indent=2)
+        from models.privacy import safe_public_output
+        json.dump(safe_public_output(to_jsonable(obj)), f, indent=2)
 
 
 def md_table(rows, headers, none_text: str = "-") -> str:

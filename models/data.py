@@ -230,6 +230,7 @@ class Arrays:
     n_dropped: int
     retained_mask: np.ndarray = None
     support: dict = field(default_factory=dict)
+    exclusions: dict = field(default_factory=dict)
 
 
 def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
@@ -249,7 +250,13 @@ def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
         ok &= st >= 0
     return Arrays(cond=cond[ok], state=st[ok], cont=cont[ok].astype(np.float32),
                   cat=cat[ok].astype(np.int64), n_dropped=int((~ok).sum()), retained_mask=ok,
-                  support={str(sex): int((ok & (as_num(df["sex"]).to_numpy() == sex)).sum()) for sex in (0, 1)})
+                  support={str(sex): int((ok & (as_num(df["sex"]).to_numpy() == sex)).sum()) for sex in (0, 1)},
+                  exclusions={reason: {"n_excluded": int(mask.sum()),
+                                       "excluded_per_sex": {str(sex): int((mask & (as_num(df["sex"]).to_numpy() == sex)).sum()) for sex in (0, 1)}}
+                              for reason, mask in {"invalid_conditions": ~(cond >= 0).all(1),
+                                                   "nonfinite_generated": ~np.isfinite(cont).all(1),
+                                                   "invalid_categories": ~(cat >= 0).all(1),
+                                                   "unsupported_state": (st < 0) if spec.use_state else np.zeros(len(df), dtype=bool)}.items()})
 
 
 def condition_marginals(df: pd.DataFrame, spec: Spec, cfg: dict) -> dict:

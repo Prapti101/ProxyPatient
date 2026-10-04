@@ -34,24 +34,36 @@ BENCH_COLS = ["waist_cm", "hip_cm"]
 
 def benchmark(val_raw: pd.DataFrame, train_raw: pd.DataFrame, impute_fn,
               cols=BENCH_COLS, mask_frac: float = 0.10, seed: int = 42) -> dict:
+    from models.privacy import suppress_count
     rng = np.random.default_rng(seed)
     out = {}
     for col in cols:
         v = as_num(val_raw[col])
-        known = np.flatnonzero(v.notna().to_numpy())
+        known = np.flatnonzero(np.isfinite(v.to_numpy(float)))
         n_mask = int(round(len(known) * mask_frac))
+        train_values = as_num(train_raw[col])
+        train_values = train_values[np.isfinite(train_values)]
+        if n_mask < 30 or len(train_values) < 30:
+            out[col] = {"status": "insufficient coverage", "n_known_val": suppress_count(len(known)),
+                        "n_masked": suppress_count(n_mask), "n_dae_returned_nan": None, "train_median": None,
+                        "val_known_sd": None, "rmse_dae": None, "rmse_median": None,
+                        "dae_beats_median": None, "improvement_pct": None}
+            continue
         idx = rng.choice(known, n_mask, replace=False)
         truth = v.iloc[idx].to_numpy(float)
         masked = val_raw.copy()
         masked.iloc[idx, masked.columns.get_loc(col)] = np.nan
         imputed = impute_fn(masked)
         pred_dae = as_num(imputed[col]).iloc[idx].to_numpy(float)
-        med = float(as_num(train_raw[col]).dropna().median())
-        rmse_dae = float(np.sqrt(np.nanmean((truth - pred_dae) ** 2)))
+        med = float(train_values.median())
+        # Both comparators must be scored on identical finite known targets.
+        if not np.isfinite(pred_dae).all():
+            raise ValueError("DAE failed predictions on masked targets; unequal-coverage RMSE is forbidden")
+        rmse_dae = float(np.sqrt(np.mean((truth - pred_dae) ** 2)))
         rmse_med = float(np.sqrt(np.mean((truth - med) ** 2)))
         out[col] = {
             "n_known_val": int(len(known)), "n_masked": n_mask,
-            "n_dae_returned_nan": int(np.isnan(pred_dae).sum()),
+            "n_dae_returned_nan": suppress_count(int((~np.isfinite(pred_dae)).sum())),
             "train_median": round(med, 3), "val_known_sd": round(float(v.dropna().std()), 4),
             "rmse_dae": round(rmse_dae, 4), "rmse_median": round(rmse_med, 4),
             "dae_beats_median": bool(rmse_dae < rmse_med),
@@ -65,6 +77,9 @@ def report_md(res, mock) -> str:
              "DAE" if r["dae_beats_median"] else "MEDIAN", r["improvement_pct"]] for c, r in res.items()]
     verdict = []
     for c, r in res.items():
+        if r.get("status") == "insufficient coverage":
+            verdict.append(f"- {c}: insufficient coverage; statistics suppressed.")
+            continue
         if not r["dae_beats_median"]:
             verdict.append(f"- **{c}: the DAE does NOT beat the train median** (RMSE {r['rmse_dae']} vs {r['rmse_median']}).")
         else:
