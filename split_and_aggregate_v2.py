@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from models.common import load_config, read_parquet, rate_cell, write_json
+from models.common import load_config, read_parquet, rate_cell, write_json, min_cell
 from models.privacy import suppress_count
 
 MIN_CELL = 30
@@ -20,7 +20,7 @@ def row_hash(df, split_name=''):
 
 
 def safe_rate(sub, col):
-    return rate_cell(sub[col], MIN_CELL)
+    return rate_cell(sub[col], min_cell(load_config()))
 
 
 def agg_by(df, group_col, outcome_col):
@@ -51,14 +51,17 @@ def build_splits(df, memberships=None, init_split=False, cfg=None):
         return splits
     if not init_split:
         raise ValueError('Missing locked membership; initial creation requires --init-split')
-    seed = int(cfg['model']['seed'])
+    ratios = cfg['split']
+    if any(float(ratios[key]) <= 0 for key in ('train', 'val', 'test')) or not np.isclose(sum(ratios[key] for key in ('train', 'val', 'test')), 1):
+        raise ValueError('Invalid configured split ratios')
+    seed = int(ratios['seed'])
     known = df[df['glucose_raw'].notna()]
     unknown = df[df['glucose_raw'].isna()].sample(frac=1, random_state=seed)
-    train, remainder = train_test_split(known, test_size=0.3, random_state=seed,
+    train, remainder = train_test_split(known, test_size=ratios['val']+ratios['test'], random_state=seed,
                                        stratify=(known['glucose_raw'] >= cfg['outcome']['threshold_mg_dl']))
-    val, test = train_test_split(remainder, test_size=0.5, random_state=seed,
+    val, test = train_test_split(remainder, test_size=ratios['test']/(ratios['val']+ratios['test']), random_state=seed,
                                stratify=(remainder['glucose_raw'] >= cfg['outcome']['threshold_mg_dl']))
-    n = int(len(unknown)*.7/.85)
+    n = int(len(unknown)*ratios['train']/(ratios['train']+ratios['val']))
     return {'train': pd.concat([train, unknown.iloc[:n]]),
             'val': pd.concat([val, unknown.iloc[n:]]), 'test': test}
 
@@ -85,9 +88,24 @@ def main(argv=None):
         data.to_parquet(directory/f'{split}_v2.parquet', index=False)
     train = splits['train'].copy()
     train['elevated_glucose_proxy'] = (train.glucose_raw >= load_config()['outcome']['threshold_mg_dl']).where(train.glucose_raw.notna())
-    write_json({'_meta': {'source': 'TRAIN reference scope, unweighted sample', 'test_used': False},
-                'overall': safe_rate(train, 'elevated_glucose_proxy'),
-                'by_sex': agg_by(train, 'sex', 'elevated_glucose_proxy')}, args.aggregates_out)
+    cfg = load_config()
+    aggregates = {'_meta': {'source': 'TRAIN reference scope, unweighted sample', 'test_used': False,
+                            'threshold_mg_dl': cfg['outcome']['threshold_mg_dl'], 'min_cell_size': min_cell(cfg)},
+                  'overall': safe_rate(train, 'elevated_glucose_proxy')}
+    for output, column in [('by_sex', 'sex'), ('by_age_band', 'age_band'), ('by_residence', 'residence'),
+                           ('by_wealth_quintile', 'wealth_quintile'), ('by_education', 'education'),
+                           ('by_tobacco', 'any_tobacco'), ('by_alcohol', 'alcohol'), ('by_state', 'state'),
+                           ('by_hypertension', 'hypertension'), ('by_bmi_band', 'bmi_band')]:
+        aggregates[output] = agg_by(train, column, 'elevated_glucose_proxy')
+    for name, first, second in [('sex_by_residence', 'sex', 'residence'), ('sex_by_age_band', 'sex', 'age_band'),
+                                ('sex_by_hypertension', 'sex', 'hypertension'),
+                                ('age_band_by_hypertension', 'age_band', 'hypertension'),
+                                ('bmi_band_by_hypertension', 'bmi_band', 'hypertension'),
+                                ('age_band_by_tobacco', 'age_band', 'any_tobacco'),
+                                ('age_band_by_alcohol', 'age_band', 'alcohol'),
+                                ('residence_by_wealth', 'residence', 'wealth_quintile')]:
+        aggregates[name] = cross_tab(train, first, second, 'elevated_glucose_proxy')
+    write_json(aggregates, args.aggregates_out)
     print({split: suppress_count(len(data)) for split, data in splits.items()})
 
 

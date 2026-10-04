@@ -83,6 +83,9 @@ def evaluate(model, arr, bs, device, use_state):
 
 
 def train(args, cfg):
+    cfg = copy.deepcopy(cfg)
+    if args.scope is not None:
+        cfg.setdefault("model", {})["scope"] = args.scope
     args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
     args.variant = cfg.get("model", {}).get("variant", "mlp") if args.variant is None else args.variant
     args.glucose_head = cfg.get("model", {}).get("glucose_head", "mixture") if args.glucose_head is None else args.glucose_head
@@ -171,7 +174,7 @@ def train(args, cfg):
     ckpt = {"state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
             "hparams": model.hparams, "preproc": json.loads(json.dumps(_pre_dict(pre))),
             "cfg": inference_cfg(cfg), "variant": args.variant, "glucose_head": args.glucose_head,
-            "mock": bool(args.mock), "is_mock": bool(args.mock),
+            "mock": bool(args.mock), "is_mock": bool(args.mock), "scope": scope_tr["scope"],
             "config_fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
     ckpt["fingerprint"] = model_fingerprint(ckpt)
     weights = args.weights_out or paths["weights"]

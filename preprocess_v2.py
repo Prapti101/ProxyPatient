@@ -36,7 +36,8 @@ MISS_CONT = set(range(9994, 10000)) | set(range(99994, 100000))
 MISS_CAT  = {8, 9}
 MISS_BP   = {994, 995, 996, 997, 998, 999}   # BP readings 0-300 mmHg valid
 MISS_HH   = set(range(9990, 10000)) | set(range(99990, 100000)) | {9990}
-GLUCOSE_THRESHOLD = 200
+from models.common import load_config
+GLUCOSE_THRESHOLD = load_config()["outcome"]["threshold_mg_dl"]
 
 # ── Column lists ──────────────────────────────────────────────────────────────
 WOMEN_COLS = [
@@ -140,12 +141,10 @@ def bp_measured_flag(sys_avg, dia_avg):
     return ((sys_avg.notna()) | (dia_avg.notna())).astype(int)
 
 def derive_bmi_band(bmi_series):
-    return pd.cut(
-        bmi_series,
-        bins=[0, 18.5, 25.0, 30.0, 999],
-        labels=["underweight", "normal", "overweight", "obese"],
-        right=False
-    )
+    bands = load_config()["bmi"]["bands"]
+    names = list(bands)
+    edges = [bands[name][0] for name in names] + [bands[names[-1]][1]]
+    return pd.cut(bmi_series, bins=edges, labels=names, right=False)
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -156,7 +155,7 @@ def validate_women_height(df, minimum_share=None):
                      if minimum_share is None else minimum_share)
     if not 0 <= minimum_share <= 1:
         raise ValueError("women_height_min_share must be between 0 and 1")
-    share = pd.to_numeric(df["height_cm"], errors="coerce").notna().mean()
+    share = np.isfinite(pd.to_numeric(df["height_cm"], errors="coerce")).mean()
     if not np.isfinite(share) or share < minimum_share:
         raise ValueError("Women's household height linkage failed: check v001/v002/v003 and ha3; "
                          f"non-missing share must be at least {minimum_share:.0%}")

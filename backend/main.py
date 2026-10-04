@@ -145,12 +145,8 @@ def get_schema():
 def get_profiles():
     """
     Return baseline reference profiles for the UI's Explore page.
-    All rates come from the precomputed aggregates.json (no raw rows).
-    Only cells with n >= 30 are shown.
+    Full profiles come from encoded TRAIN joint cells with at least 500 rows.
     """
-    if _aggregates is None:
-        raise HTTPException(503, "Aggregates not loaded.")
-
     bundle, _ = _load_or_503()
     root = os.path.dirname(__import__("backend.generator", fromlist=["_paths"])._paths()[0])
     path = os.path.join(root, "supported_profiles.json")
@@ -161,6 +157,11 @@ def get_profiles():
             raise ValueError("Supported profiles fingerprint mismatch")
         if len(assets["profiles"]) < 3:
             raise ValueError("Fewer than three supported TRAIN profiles; each requires 500 encoded rows")
+        from backend.schemas import FULL_KEYS
+        for profile in assets["profiles"]:
+            parsed = Condition(**profile["condition"])
+            if profile["n_train"] < 500 or any(getattr(parsed, key) is None for key in FULL_KEYS):
+                raise ValueError("Invalid or under-supported full TRAIN profile")
         return ProfilesResponse(profiles=[ProfileEntry(**p) for p in assets["profiles"]])
     except (OSError, ValueError, KeyError) as exc:
         raise HTTPException(503, str(exc)) from exc
@@ -340,7 +341,12 @@ def _state_options():
 
 @app.get("/options", tags=["Data"])
 def options():
-    return {"state": _state_options()}
+    from backend.schemas import FULL_KEYS
+    return {"state": _state_options(), "sex": [0, 1], "age_band": _cfg["whatif_options"]["age_band"],
+            "residence": _cfg["whatif_options"]["residence"]["options"],
+            "wealth_quintile": [1, 2, 3, 4, 5], "bmi_band": list(_cfg["bmi"]["bands"]),
+            "hypertension": [0, 1], "tobacco": [0, 1], "alcohol": [0, 1],
+            "required_profile_keys": list(FULL_KEYS)}
 
 
 class DemoBannerMiddleware(BaseHTTPMiddleware):

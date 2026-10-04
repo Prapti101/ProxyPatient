@@ -12,6 +12,7 @@ def inference_cfg(cfg):
                            'men': cfg['whatif_options']['age_band']['men_options']},
         'bmi_bands': cfg['bmi']['bands'],
         'threshold_mg_dl': cfg['outcome']['threshold_mg_dl'],
+        'scope': cfg.get('model', {}).get('scope', 'complete_conditions'),
         'glucose_clip_mg_dl': cfg.get('model', {}).get('glucose_clip_mg_dl', [20, 600]),
     }
 
@@ -35,6 +36,8 @@ def validate_checkpoint(checkpoint, cfg=None):
     if spec.use_state and (not spec.state_codes or len(spec.state_codes) != spec.n_states
                           or len(set(spec.state_codes)) != spec.n_states):
         raise RuntimeError('Invalid checkpoint state mapping')
+    if checkpoint.get('scope') != cfg.get('model', {}).get('scope', 'complete_conditions'):
+        raise RuntimeError('Checkpoint training scope does not match current configuration')
     if checkpoint.get('cfg') != inference_cfg(cfg) or checkpoint.get('config_fingerprint') != fingerprint(cfg, spec):
         raise RuntimeError('Checkpoint configuration fingerprint mismatch; retrain with current configuration')
     if checkpoint.get('fingerprint') != model_fingerprint(checkpoint):
@@ -45,10 +48,13 @@ def validate_checkpoint(checkpoint, cfg=None):
 def model_fingerprint(checkpoint):
     """Identity includes fitted parameters, preprocessing, configuration and mode."""
     digest = hashlib.sha256()
-    metadata = {key: checkpoint[key] for key in ('preproc', 'cfg', 'hparams', 'is_mock')}
+    metadata = {key: checkpoint[key] for key in ('preproc', 'cfg', 'hparams', 'is_mock', 'scope')}
     digest.update(json.dumps(metadata, sort_keys=True, allow_nan=False).encode())
     for name, tensor in sorted(checkpoint['state_dict'].items()):
+        import numpy as np
         array = tensor.detach().cpu().contiguous().numpy()
+        if not np.isfinite(array).all():
+            raise RuntimeError('Model parameters are not finite')
         digest.update(name.encode())
         digest.update(str(array.dtype).encode())
         digest.update(str(array.shape).encode())

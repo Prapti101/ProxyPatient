@@ -95,7 +95,8 @@ class Condition(StrictModel):
             try:
                 codes = _load()[0].spec.state_codes
             except ModelUnavailable as exc:
-                raise ValueError('state options unavailable until compatible artifacts are loaded') from exc
+                from fastapi import HTTPException
+                raise HTTPException(503, 'state options unavailable until compatible artifacts are loaded') from exc
             if value not in codes:
                 raise ValueError(f'state must be one of {codes}')
         return value

@@ -2,7 +2,7 @@
 
 Development uses TRAIN and VAL only. P2 normalization fits only encoded TRAIN rows. `models.common.read_parquet` is the single non-legacy row reader, and test outcome access requires the explicit final stage. Split recreation can access `_row_id` membership only, never outcome columns. Hash mismatches, missing membership, duplicate IDs and overlaps stop before writing. One-time initialization requires `--init-split` and refuses existing splits.
 
-The historic pipeline has already handled the test respondents: split creation, full-data outcome aggregates, and the documented v1 DAE trained on combined data including test. V2 also performed combined-data inference. This code cannot undo prior exposure; team members must record any additional local examination or tuning.
+The historic pipeline has already handled the test respondents: split creation, full-data outcome aggregates, and v1 DAE combined-data imputation. The committed v1 executable trains on TRAIN, not combined data; the specification’s training-on-combined claim is not supported by that source. Historical private training runs are unverified. V2 also performed combined-data inference. This code cannot undo prior exposure; team members must record any additional local examination or tuning.
 
 The final result must be described as **evaluation on a held-out split whose aggregate statistics were previously computed**, not an untouched set. Freeze model, preprocessing and configuration before the single acknowledged final-test run. A persisted exclusive final-run marker prevents reruns in the same output directory; use the same frozen directory and never delete the marker to select models. No code can enforce this across copies of the private files.
 

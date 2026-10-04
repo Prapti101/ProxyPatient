@@ -5,7 +5,7 @@ ProxyPatient — Generator (P2, real CVAE)
 
 Decoder-only generator; serving validates artifact identity and mode.
 
-condition: any subset of
+condition: FULL profile (partial only with explicit demo/development opt-in):
     sex              "female"/"male" (API form) or 0/1
     age_band         "15-24", "25-34", "35-49" (women) / "35-54" (men); either
                      sex-specific label is accepted, the output echoes the
@@ -17,15 +17,14 @@ condition: any subset of
     tobacco          0/1   (maps to any_tobacco)
     alcohol          0/1
     state            supported raw code from the checkpoint mapping
-Unspecified keys are sampled from models/condition_marginals.json as
-INDEPENDENT marginals, so the UI should send a FULL baseline profile plus the
-what-if changes. Invalid values raise ValueError.
+The UI sends a FULL baseline profile plus what-if changes. Only explicit
+demo/development partial requests fill independent marginals and report a warning. Invalid values raise ValueError.
 
 Returns n NEW rows sampled from the CVAE decoder, in ORIGINAL units: the
 conditions, generated variables, glucose_raw (mg/dL), elevated_glucose_proxy
 (derived from the generated glucose_raw and config threshold) and
 is_synthetic=True. Deterministic per seed; CPU; writes nothing to disk unless
-export_sample=True (to the git-ignored outputs/ folder).
+row export is disabled (including MOCK samples).
 """
 
 import json
@@ -83,6 +82,8 @@ def _load():
             if is_mock is not demo:
                 raise ModelUnavailable("MOCK checkpoints require PP_DEMO_MOCK=1; demo mode requires a MOCK checkpoint")
             fp = validate_checkpoint(bundle.ckpt, load_config())
+            if bundle.ckpt["scope"] != "complete_conditions":
+                raise ModelUnavailable("Presentation serving requires measured-BMI/known-BP complete_conditions scope")
             if marg.get("_meta", {}).get("fingerprint") != fp:
                 raise ModelUnavailable("Marginals fingerprint does not match checkpoint")
             _BUNDLES.clear()
@@ -154,7 +155,7 @@ def _parse_condition(condition: dict, bundle) -> dict:
             lab = str(v).strip().lower()
             if key == "wealth_quintile":
                 try:
-                    lab = str(int(float(lab)))
+                    lab = str(int(lab))
                 except ValueError:
                     pass
             levels = spec.cond_levels[key]
@@ -209,7 +210,10 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
             state_idx = rng.choice(spec.n_states, size=n, p=_marginal_probs(marg, "state", codes))
             filled.append("state")
 
-    gen = bundle.sample(cond_idx, state_idx, seed=int(seed))
+    try:
+        gen = bundle.sample(cond_idx, state_idx, seed=int(seed))
+    except ValueError as exc:
+        raise ModelUnavailable("CVAE decoding failed: " + str(exc)) from exc
 
     ci = {c: j for j, c in enumerate(spec.cond_names)}
     sex = cond_idx[:, ci["sex"]]
@@ -245,7 +249,5 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
                             "warning": "Independent marginal fill (development only)" if missing else None}
 
     if export_sample:
-        os.makedirs(OUTPUTS_DIR, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        df.to_csv(os.path.join(OUTPUTS_DIR, f"synthetic_sample_seed{seed}_{stamp}.csv"), index=False)
+        raise ValueError("Row export is disabled; MOCK samples must never be persisted")
     return df

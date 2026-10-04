@@ -60,6 +60,8 @@ class CVAEBundle:
             if c == "log_glucose":
                 lo, hi = self.cfg["glucose_clip_mg_dl"]
                 raw = np.exp(v)
+                if not np.isfinite(raw).all():
+                    raise ValueError("Non-finite generated glucose before plausibility clipping")
                 out["_glucose_clipped"] = (raw < lo) | (raw > hi)
                 out["glucose_raw"] = np.clip(np.round(raw), lo, hi)
             else:
@@ -155,6 +157,10 @@ class CVAEBundle:
         for c in ("systolic_avg", "diastolic_avg"):
             if c in units:
                 units[c] = np.round(units[c])
+        if "systolic_avg" in units:
+            mask = ht == 0
+            units["systolic_avg"][mask] = np.minimum(units["systolic_avg"][mask], 139)
+            units["diastolic_avg"][mask] = np.minimum(units["diastolic_avg"][mask], 89)
         df = pd.DataFrame(units)
         df["age"] = df["age"].astype(int)
         df.attrs["sampling"] = {

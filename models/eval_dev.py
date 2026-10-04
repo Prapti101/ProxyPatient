@@ -77,6 +77,8 @@ def outcome(df, thr):
 def gen_cvae(path, real_df, cf, spec_eval, seed):
     from models.sampling import CVAEBundle
     b = CVAEBundle.load(path, "cpu")
+    from models.artifacts import validate_checkpoint
+    validate_checkpoint(b.ckpt, load_config())
     cond_idx = encode_conditions(cf, b.spec)
     st = state_index(real_df, b.spec) if b.spec.use_state else None
     if st is not None:
@@ -198,6 +200,7 @@ def direction_checks(real, gen, spec, thr):
         rr = yr.groupby(real[v]).mean().reindex(levels)
         rg = yg.groupby(gen[v]).mean().reindex(levels)
         n = real[v].value_counts().reindex(levels, fill_value=0)
+        rg[n < MIN_CELL_EVAL] = np.nan
         rr[n < MIN_CELL_EVAL] = np.nan     # too few real rows for a stable rate
         ok = rr.notna() & rg.notna()
         entry = {"levels": levels, "real_rate": [None if pd.isna(x) else round(float(x), 6) for x in rr],

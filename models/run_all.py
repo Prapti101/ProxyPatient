@@ -224,7 +224,17 @@ def main(argv=None):
         print(f'Starting {name}', flush=True)
         subprocess.run(command, check=True, env=environment)
     metrics = [json.loads((root/'stage_metrics'/f'{name}.json').read_text()) for name in names]
-    write_json({'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(root/'safe_outputs/run_metrics.json'))
+    metrics_name = 'final_run_metrics.json' if args.final_test else 'run_metrics.json'
+    safe = root/'safe_outputs'
+    write_json({'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
+    manifest = {'mock': args.mock, 'skipped_stages': args.skipped_stages,
+                'files': [{'file': path.name, 'sha256': sha256_file(str(path))}
+                          for path in sorted(safe.iterdir()) if path.suffix in ('.json', '.md') and path.name != 'manifest.json']}
+    write_json(manifest, str(safe/'manifest.json'))
+    if args.final_test:
+        record = json.loads(marker.read_text())
+        record.update(status='completed', completed=datetime.now(timezone.utc).isoformat())
+        write_json(record, str(marker))
     return {'stages': names, 'mock': args.mock, 'out_dir': str(root)}
 
 

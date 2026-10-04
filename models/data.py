@@ -78,7 +78,7 @@ def build_spec(cfg: dict, use_state: Optional[bool] = None,
     if training_df is not None:
         minimum = float(m.get("optional_min_share", 0.8))
         for col in m.get("optional_generated", ["height_cm", "weight_kg"]):
-            shares = [float(as_num(training_df.loc[as_num(training_df["sex"]) == sex, col]).notna().mean())
+            shares = [float(np.isfinite(as_num(training_df.loc[as_num(training_df["sex"]) == sex, col])).mean())
                       if col in training_df else 0.0 for sex in (0, 1)]
             if any(not np.isfinite(x) or x < minimum for x in shares):
                 if col in cont:
@@ -93,14 +93,22 @@ def build_spec(cfg: dict, use_state: Optional[bool] = None,
         values = as_num(training_df["state"])
         if ((values.dropna() % 1) != 0).any():
             raise ValueError("State codes must be integers")
-        counts = values.value_counts()
+        candidate = Spec(cond_names=list(levels), cond_levels=levels, use_state=False, n_states=1,
+                         cont_cols=cont, cat_cols=cat, cat_levels={c: cat_levels[c] for c in cat},
+                         generate_bp=bool(generate_bp))
+        eligible = (encode_conditions(condition_frame(training_df, candidate), candidate) >= 0).all(1)
+        generated = raw_generated(training_df, candidate)
+        eligible &= np.isfinite(generated[cont].to_numpy(float)).all(1)
+        for col in cat:
+            eligible &= generated[col].isin(cat_levels[col]).to_numpy()
+        counts = values[eligible].value_counts()
         state_codes = sorted(int(code) for code, count in counts.items() if count >= min_cell(cfg))
         if not state_codes:
             raise ValueError("No state codes have privacy-safe training support")
     return Spec(cond_names=list(levels), cond_levels=levels, use_state=bool(use_state),
                 n_states=max(len(state_codes), 1), state_codes=state_codes, cont_cols=cont, cat_cols=cat,
                 cat_levels={c: cat_levels[c] for c in cat}, generate_bp=bool(generate_bp),
-                weight_derived="height_cm" in cont)
+                weight_derived="height_cm" in cont and "weight_kg" not in dropped)
 
 
 # ── Scope ─────────────────────────────────────────────────────────────────────

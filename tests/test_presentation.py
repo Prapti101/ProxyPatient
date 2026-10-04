@@ -223,7 +223,12 @@ def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path):
     assert not list(tmp_path.rglob('*.parquet')) and not list(tmp_path.rglob('*.csv'))
     for path in (tmp_path/'safe_outputs').glob('*.json'):
         assert not small_count_paths(json.loads(path.read_text())), path.name
-    assert json.loads((tmp_path/'safe_outputs/manifest.json').read_text())['mock'] is True
+    manifest = json.loads((tmp_path/'safe_outputs/manifest.json').read_text())
+    assert manifest['mock'] is True
+    expected = {p.name for p in (tmp_path/'safe_outputs').iterdir() if p.suffix in ('.json', '.md') and p.name != 'manifest.json'}
+    assert {entry['file'] for entry in manifest['files']} == expected
+    from models.common import sha256_file
+    assert all(sha256_file(str(tmp_path/'safe_outputs'/entry['file'])) == entry['sha256'] for entry in manifest['files'])
 
 
 def test_parser_negation_outcome_rejection_and_confirmation(real_generator_env):
@@ -239,7 +244,7 @@ def test_parser_negation_outcome_rejection_and_confirmation(real_generator_env):
         assert c.post('/parse', json={'text': 'improved BMI'}).json()['unresolved']
         r = c.post('/parse', json={'text': 'improved BMI', 'baseline': {'bmi_band': 'obese'}})
         assert r.json()['parsed_condition']['bmi_band'] == 'overweight'
-        assert not c.post('/parse', json={'text': 'unchanged'}).json()['parsed_condition']['sex']
+        assert c.post('/parse', json={'text': 'unchanged'}).json()['parsed_condition']['sex'] is None
 
 
 def test_api_version_and_real_parser_disabled(monkeypatch):
@@ -272,6 +277,8 @@ def test_invalid_numeric_domains_are_not_truncated():
     cfg = load_config()
     frame, _ = apply_scope(make_mock_v2(1000), cfg)
     spec = build_spec(cfg, training_df=frame)
+    for column in ('sex', 'wealth_quintile', 'state'):
+        frame[column] = frame[column].astype(float)
     frame.loc[frame.index[:3], 'sex'] = .5
     frame.loc[frame.index[3:6], 'wealth_quintile'] = 1.5
     frame.loc[frame.index[6:9], 'any_tobacco'] = .5
@@ -393,3 +400,88 @@ def test_package_rejects_mock_as_real_and_preserves_old_outputs(tmp_path, mock_m
     with pytest.raises(ValueError, match='provenance'):
         package(args)
     assert (old/'user-file.md').read_text() == 'preserve'
+
+
+def test_state_support_uses_rows_that_can_be_encoded():
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(4000), cfg)
+    frame.loc[frame.state == 37, 'education'] = 99
+    assert (frame.state == 37).sum() >= 30
+    assert 37 not in build_spec(cfg, training_df=frame).state_codes
+
+
+def test_derived_weight_respects_optional_measurement_support():
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(2000), cfg)
+    frame.loc[frame.sex == 0, 'weight_kg'] = np.nan
+    spec = build_spec(cfg, training_df=frame)
+    assert 'height_cm' in spec.cont_cols and not spec.weight_derived
+
+
+def test_mock_row_export_and_fractional_wealth_are_rejected(real_generator_env):
+    from backend.generator import generate
+    with pytest.raises(ValueError, match='export'):
+        generate(FULL, 100, export_sample=True)
+    with pytest.raises(ValueError, match='wealth_quintile'):
+        generate({**FULL, 'wealth_quintile': 1.5}, 100)
+
+
+def test_missing_artifacts_return_unavailable_for_full_requests(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    monkeypatch.setenv('PP_MODEL_DIR', str(tmp_path))
+    for key in ('PP_DEMO_MOCK', 'PP_CVAE_WEIGHTS', 'PP_CONDITION_MARGINALS', 'PP_ALLOW_PARTIAL_PROFILE'):
+        monkeypatch.delenv(key, raising=False)
+    with TestClient(app) as client:
+        assert client.get('/health').json()['mode'] == 'unavailable'
+        assert client.post('/generate', json={'condition': FULL, 'n': 100}).status_code == 503
+        assert client.post('/generate', json={'condition': {**FULL, 'state': 37}, 'n': 100}).status_code == 503
+
+
+def test_final_marker_prevents_repeated_evaluation_or_retraining(tmp_path, mock_model_dir, monkeypatch):
+    import json
+    import shutil
+    from models import run_all
+    private = tmp_path/'private_outputs'
+    private.mkdir()
+    shutil.copy2(mock_model_dir/'cvae_weights.pt', private/'cvae_weights.pt')
+    (tmp_path/'safe_outputs').mkdir()
+    # Exercise orchestration/marker only; this unit test does not claim final metrics executed.
+    def stage_only(command, **kwargs):
+        assert '--final-test' in command
+        (tmp_path/'stage_metrics').mkdir(exist_ok=True)
+        (tmp_path/'stage_metrics/final_test.json').write_text(json.dumps({'stage': 'final_test', 'runtime_seconds': 0., 'peak_memory_mib': 0.}))
+    monkeypatch.setattr(run_all.subprocess, 'run', stage_only)
+    args = ['--mock', '--out-dir', str(tmp_path), '--final-test', '--i-understand-this-is-the-single-final-run']
+    assert run_all.main(args)['stages'] == ['final_test']
+    assert (tmp_path/'FINAL_TEST_STARTED.json').exists()
+    with pytest.raises(RuntimeError, match='already entered'):
+        run_all.main(args)
+    with pytest.raises(RuntimeError, match='already entered'):
+        run_all.main(['--mock', '--out-dir', str(tmp_path), '--full'])
+
+
+def test_nonfinite_model_parameters_fail_artifact_validation(mock_model_dir):
+    import torch
+    from models.artifacts import model_fingerprint
+    checkpoint = torch.load(mock_model_dir/'cvae_weights.pt', weights_only=False)
+    first = next(iter(checkpoint['state_dict']))
+    checkpoint['state_dict'][first].fill_(float('nan'))
+    with pytest.raises(RuntimeError, match='not finite'):
+        model_fingerprint(checkpoint)
+
+
+def test_direction_statistics_suppress_both_sides_of_rare_cells(monkeypatch):
+    from models import eval_dev
+    from models.data import condition_frame
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(1000), cfg)
+    spec = build_spec(cfg, training_df=frame)
+    real = condition_frame(frame, spec).reset_index(drop=True)
+    real['glucose_raw'] = 100.
+    real['residence'] = 'rural'
+    real.loc[:9, 'residence'] = 'urban'
+    monkeypatch.setattr(eval_dev, 'MIN_CELL_EVAL', 30)
+    report = eval_dev.direction_checks(real, real.copy(), spec, 200)
+    index = report['residence']['levels'].index('urban')
+    assert report['residence']['real_rate'][index] is None and report['residence']['gen_rate'][index] is None
