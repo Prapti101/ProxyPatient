@@ -1,53 +1,26 @@
-# P2: next steps for the humans (Half B)
+# P2 next steps for the private data holder
 
-The P2 code was written and tested on MOCK data only (no NFHS-5 data was ever
-in the cloud environment). Nothing about real-data performance is known yet.
+Updated 2026-10-05 (Asia/Kolkata). Supersedes the historical manual stage list and speculative architecture adjustments. Software smoke results use MOCK data only.
 
-## Who does what
-* **Data holder (P1 or P2's human):** follow `models/RUN_ON_COLAB.md` steps 0-5.
-* **P1:** add `hypertension` (and optional `state`) to `Condition` in
-  `backend/schemas.py`; reconcile the sex encoding and `aggregates_v2.json`
-  keys (see `docs/p2_repo_check.md`); decide whether to untrack the v1
-  `processed/*.pkl|.pt` files.
-* **P3:** `outcome_stat` can rely on the generator's `elevated_glucose_proxy`
-  and `glucose_raw` columns and on `is_synthetic=True`. Formal validation should
-  use the test split once, via `models/eval_dev.py --final-test` or your own code.
-* **P4:** always send a FULL baseline profile plus the what-if changes; any
-  key left out is filled from independent population marginals.
+1. Read `OPEN_QUESTIONS.md`, the committed preflight review and `TEST_SPLIT_POLICY.md`. Confirm authorization for the intended private runtime; do not upload NFHS rows to this task.
+2. P1 repairs/regenerates affected private v2 files and verifies the women's household join, official glucose units, state code labels, medication/tobacco encodings, BP fallback and the locked membership. These facts are not established by mock tests. P2 guard failures must be investigated, not bypassed.
+3. Use Python 3.11 and the pinned CPU dependency path in `models/RUN_ON_COLAB.md`. Run `pytest`, then the mock one-command smoke.
+4. Run on the approved private machine:
 
-## Commands (in order)
 ```bash
-export PP_DATA_DIR=/path/to/private/processed
-python -m models.step0_checks
-python -m models.check_dae_benchmark
-python -m models.train_cvae
-python -m models.train_baselines
-python -m models.eval_dev
-# at the very end, once:
-python -m models.eval_dev --final-test
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-quick --quick
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --full
 ```
 
-## What to paste back to P2 if tuning is needed (aggregates only)
-1. `docs/p2_step0_checks.md`, these sections: File integrity, Caveat checks
-   (train), Training scope, Condition cell sizes.
-2. `docs/p2_dae_benchmark.md` (the table).
-3. From `models/cvae_train_log.json`: `n_train`, `n_val`, `best_val_elbo`,
-   `train_seconds`, and the last 3 entries of `epochs`.
-4. `docs/model_comparison_dev.md` (the summary table) and from the JSON, for
-   each model: `tail`, `conditional_rate_fidelity.overall`,
-   `conditional_rate_fidelity.by_sex`, `direction`, `consistency`,
-   `generation` (CVAE: `sampling.first_pass_inconsistent_share`; baselines:
-   `rejection_sampling`).
-5. `docs/baselines_train_log.json`.
+5. Inspect stage timings/peak memory, manifest/unit/support failures, dropped optional variables, per-sex encoding exclusions, supported state/profile cells, requested versus retained condition coverage, finite-target DAE comparison, conditional-rate fidelity, tail/clipping behavior, and disclosure limitations. Compare models only with the stated different data/state setup. A privacy denominator of 30 is not a scientific adequacy certificate.
+6. Keep `private_outputs/`, respondent files and model weights private. Only reviewed aggregate `safe_outputs/*.json/*.md` may be candidates for public commit, subject to the actual agreement. The real package populates `models/model_card.json`; never replace pending fields with manually invented numbers. Formal P3 validation remains separate/pending.
+7. Serve through `PP_MODEL_DIR=/private/pp-full/private_outputs`, require full profiles, and inspect health/fingerprint/mode. The explicit mock demo requires `PP_DEMO_MOCK=1`; real mode rejects it.
+8. Freeze model, config and selection decisions. Execute the acknowledged final command once on the frozen full-run directory:
 
-Never paste rows, row samples, or anything from the parquet files themselves.
+```bash
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --final-test --i-understand-this-is-the-single-final-run
+```
 
-## Decision rules P2 will apply to the results
-* If CVAE `% >= threshold` or P95/P99 is well below REAL: compare
-  `--glucose-head gaussian` vs `mixture` (default) and raise components to 5.
-* If `first_pass_inconsistent_share` > 0.2 for typical conditions: raise
-  `latent_dim`/epochs or model age/BMI within band.
-* If conditional MAE (pp) is worse than TVAE/CTGAN: try `beta` 0.5, more epochs,
-  `--no-state`.
-* If nearest-record distance for generated rows is far below the real-to-real
-  baseline (or `share_exact_copy` > 0): stronger KL (`beta` > 1) and report it.
+Use the honest held-out description in the test policy. Record prior local test examination; do not tune after the final outcome.
+
+Do not change mixture components, architecture or thresholds merely to obtain a desired outcome rate. Real validation can identify specific problems, but this cloud task supplies no real-data verdict or model winner.

@@ -1,104 +1,53 @@
-# Running the P2 model code on real NFHS-5 data (Colab or Kaggle)
+# Private-holder one-command workflow
 
-The respondent-level files may only live on your machine or in a PRIVATE
-Drive folder / PRIVATE Kaggle dataset that only the team can open. Never put
-them in the repo, a public dataset, or an AI chat. Every script below prints
-and writes **aggregates only** (counts, rates, quantiles; cells with n < 30
-suppressed).
+Updated 2026-10-05 (Asia/Kolkata). No real NFHS run or GPU timing is verified by the cloud implementation task.
 
-## 0. Upload (once)
-Put these in a private folder, e.g. `MyDrive/proxypatient_private/processed/`
-(or a private Kaggle dataset):
+Do not upload respondent data to this task, an AI chat, or public hosting. Colab/Kaggle or another private cloud is permitted only if the actual DHS research agreement authorizes that environment and every recipient. The repository cannot determine that permission. Until confirmed, run on the approved local holder's machine.
 
-```
-train_v2.parquet  val_v2.parquet  test_v2.parquet
-dae_imputed_train_v2.parquet  dae_imputed_val_v2.parquet  dae_imputed_test_v2.parquet
-dae_weights_v2.pt  dae_fit_stats_v2.pkl  MANIFEST.json
-```
+## Prepare
 
-## 1. Set up the runtime
-Colab: Runtime → Change runtime type → GPU (T4 is enough).
+Use the fork's `main` after the presentation-slice branch is merged. During review use `p2-presentation-slice`; do not clone an obsolete development branch. Python 3.11/CPU has been verified:
 
 ```bash
-from google.colab import drive; drive.mount('/content/drive')      # Colab only (Python cell)
-!git clone -b claude/new-session-sj0fv1 https://github.com/Prapti101/ProxyPatient.git   # use main once the P2 PR is merged
-%cd ProxyPatient
-# Keep Colab's preinstalled torch/pandas/numpy; add the rest:
-!pip install -q ctgan==0.12.1 rdt==1.22.0 pyyaml fastapi httpx pytest
-import os; os.environ["PP_DATA_DIR"] = "/content/drive/MyDrive/proxypatient_private/processed"
-# Kaggle instead: os.environ["PP_DATA_DIR"] = "/kaggle/input/<your-private-dataset>"
-```
-On a local machine: `pip install -r requirements.txt` and `export PP_DATA_DIR=/path/to/processed`.
-
-Sanity check that the code works before touching real data (MOCK data only):
-```bash
-!python -m pytest -q
+git clone https://github.com/dhruvvvgg/proxypatient-fork.git
+cd proxypatient-fork
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt --torch-backend cpu
+source .venv/bin/activate
+export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2
+python -m pytest -q
+python -m models.run_all --mock --quick --out-dir outputs/mock-smoke
 ```
 
-## 2. Run, in this order
+The private processed folder needs un-imputed `train_v2.parquet` and `val_v2.parquet`, imputed `dae_imputed_train_v2.parquet` and `dae_imputed_val_v2.parquet`, and a `MANIFEST.json` with matching SHA-256 entries. The DAE benchmark additionally requires trusted `dae_weights_v2.pt` and `dae_fit_stats_v2.pkl`. Keep raw/preprocessed respondent files private. Final-test files stay locked until the final command. Only metadata hashes for train/val are examined in development.
 
-| step | command | writes | rough time (T4) |
-|---|---|---|---|
-| 1 | `!python -m models.step0_checks` | `docs/p2_step0_checks.md/.json` | 2-5 min |
-| 2 | `!python -m models.check_dae_benchmark` | `docs/p2_dae_benchmark.md/.json` | 1-3 min |
-| 3 | `!python -m models.train_cvae` | `models/cvae_weights.pt` (PRIVATE), `models/cvae_preproc.json`, `models/condition_marginals.json`, `models/cvae_train_log.json`, `models/model_card.json` | 10-40 min |
-| 4 | `!python -m models.train_baselines` | `outputs/baselines/{tvae,ctgan}.pkl` (PRIVATE), `docs/baselines_train_log.json` | 30-90 min |
-| 5 | `!python -m models.eval_dev` | `docs/model_comparison_dev.json/.md` | 5-20 min |
+P1 must repair/rebuild affected women's height linkage before the private run, verify glucose units and official codebook maps, and review the deferred medication/BP rules. The current P2 workflow fits its own TRAIN-only preprocessor; do not use the historical all-data `preprocess.pkl`/`preprocess_v2.pkl`.
 
-Read `docs/p2_step0_checks.md` after step 1 before going on. Stop and tell P2
-if: any MANIFEST status is not OK, the glucose unit verdict is not mg/dL, the
-any_tobacco rate is higher in women than in men, or the in-scope share is far
-below ~85%.
-
-Useful flags: `--max-rows 50000` (quick trial of train_cvae), `--epochs N`,
-`--no-state`, `--glucose-head gaussian`, `--generate-bp`, `--cpu`.
-`train_baselines --epochs 30` if the GPU session is short.
-
-### Optional ablations (T8) and head comparison
-```bash
-!python -m models.train_cvae --variant gru --out-dir outputs/cvae_gru
-!python -m models.train_cvae --variant cnn --out-dir outputs/cvae_cnn
-!python -m models.train_cvae --glucose-head gaussian --out-dir outputs/cvae_gauss
-!python -m models.eval_dev --extra-cvae CVAE-gru=outputs/cvae_gru/cvae_weights.pt \
-     --extra-cvae CVAE-cnn=outputs/cvae_cnn/cvae_weights.pt \
-     --extra-cvae CVAE-gaussian=outputs/cvae_gauss/cvae_weights.pt
-```
-(`--out-dir outputs/...` keeps the main model's files in `models/` untouched.)
-
-## 3. What to keep, download and commit
-* **Keep PRIVATE (never commit):** `models/cvae_weights.pt`, `outputs/` (baseline
-  pickles, any exported samples), every parquet. Copy `cvae_weights.pt` to the
-  private Drive folder so the backend machine can use it.
-* **Download and commit (aggregate-only):**
-  `models/cvae_preproc.json`, `models/condition_marginals.json`,
-  `models/model_card.json`, `models/cvae_train_log.json`,
-  `docs/p2_step0_checks.md`, `docs/p2_step0_checks.json`,
-  `docs/p2_dae_benchmark.md`, `docs/p2_dae_benchmark.json`,
-  `docs/baselines_train_log.json`,
-  `docs/model_comparison_dev.json`, `docs/model_comparison_dev.md`.
+## Quick, then full
 
 ```bash
-git add models/cvae_preproc.json models/condition_marginals.json models/model_card.json \
-        models/cvae_train_log.json docs/p2_step0_checks.* docs/p2_dae_benchmark.* \
-        docs/baselines_train_log.json docs/model_comparison_dev.*
-git status                     # must show NO .parquet/.csv/.pt/.pkl files
-git ls-files | grep -E '\.(parquet|csv|dta|sav|zip|pt)$'     # must print nothing new
-git commit -m "P2: real-data aggregate results (step0, DAE benchmark, CVAE, baselines, dev eval)"
-```
-Open each file before committing and check it contains only counts, rates,
-quantiles and settings.
-
-## 4. Use the real generator in the backend
-```bash
-export PP_GENERATOR=real                        # otherwise the stub is used
-export PP_CVAE_WEIGHTS=/private/path/cvae_weights.pt   # default models/cvae_weights.pt
-uvicorn backend.main:app --port 8000
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-quick --quick
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --full
 ```
 
-## 5. FINAL test (run ONCE, at the very end, after the model is frozen)
+Use separate output directories so the quick trial remains inspectable. Quick keeps all integrity/unit/per-sex/state guards: it does not lower the real 5,000 complete rows per sex requirement. The runner is CPU-only; no T4 runtime or memory promise is made. Full uses config defaults. Set epochs/batch size/seed/optional generated variables in `config.yaml` before freezing it. Individual training-stage flags override config only when explicitly supplied.
+
+Order: step0 -> DAE benchmark -> CVAE -> TVAE/CTGAN -> validation evaluation -> package. Stage failures stop the run. If an optional benchmark or baseline cannot be run, explicitly use `--skip-dae-benchmark` or `--skip-baselines`; omissions are recorded and are not successes. Inspect requested/retained condition coverage, clipping, tail fidelity, subgroup metrics, and the comparison's differing data/state use. Do not claim a winning architecture from this unequal setup alone.
+
+Each stage records runtime and peak RSS. `safe_outputs/` has aggregate JSON/Markdown and a hash manifest. `private_outputs/` has weights, preprocessor, marginals, supported profiles and baseline pickles. **Never commit the private directory or data/weights.** A real package updates `models/model_card.json` from computed real outputs; mock packaging never overwrites the tracked pending template. Review aggregate outputs and licensing/disclosure questions before committing even safe files. The package does not invent a formal P3 validation report.
+
+## Serve and freeze
+
 ```bash
-!python -m models.eval_dev --final-test        # -> docs/model_comparison_final_test.json/.md
-!python -m models.step0_checks --final-test --out docs/p2_step0_checks_with_test.md   # optional
+PP_MODEL_DIR=/private/pp-full/private_outputs python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
-Do not change the model after looking at these numbers; if you do, say so in
-the report.
+
+Do not set `PP_DEMO_MOCK` for real serving. Missing/mock/incompatible artifacts fail closed. Choose full supported `/profiles` and use `/options` for actual state codes. `/validation` remains pending unless a separate explicit-status `validation_report.json` is supplied in `PP_MODEL_DIR`.
+
+After selecting one model/config on VAL, freeze all artifacts. Only then:
+
+```bash
+python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --final-test --i-understand-this-is-the-single-final-run
+```
+
+The exclusive final-stage marker is created before evaluation and is not removed on failure. Investigate failures without repeating model selection or deleting the marker. This guard is per output directory; copies of files cannot be globally controlled by code. See `docs/TEST_SPLIT_POLICY.md` for prior aggregate/DAE exposure and the honest held-out description.
