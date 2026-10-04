@@ -23,7 +23,7 @@ import pandas as pd
 
 from models.common import (DOCS_DIR, MOCK_BANNER, OUTPUTS_DIR, data_dir, load_config,
                            read_parquet, split_path, write_json)
-from models.data import apply_scope, build_spec, condition_frame, raw_generated
+from models.data import apply_scope, build_spec, condition_frame, raw_generated, fit_preproc, make_arrays, require_sex_support
 
 STRATIFY_ON = ["sex", "age_band", "bmi_band", "hypertension"]
 
@@ -136,7 +136,9 @@ def main(argv=None):
     else:
         raw = read_parquet(split_path(data_dir(args.data_dir), "train"))
     tr, scope = apply_scope(raw, cfg)
-    spec = build_spec(cfg, use_state=False)
+    spec = build_spec(cfg, use_state=False, training_df=tr)
+    arrays = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+    require_sex_support(arrays, cfg, mock=args.mock)
     args.subsample = args.subsample or int(cfg.get("baselines", {}).get("subsample_rows", 100_000))
     t = stratified_subsample(joint_table(tr, spec), args.subsample, args.seed)
     epochs = args.epochs or int(cfg.get("baselines", {}).get("epochs", 100))

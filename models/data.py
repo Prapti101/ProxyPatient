@@ -46,7 +46,7 @@ class Spec:
 
 
 def build_spec(cfg: dict, use_state: Optional[bool] = None,
-               generate_bp: Optional[bool] = None) -> Spec:
+               generate_bp: Optional[bool] = None, training_df=None) -> Spec:
     m = cfg.get("model", {})
     use_state = m.get("state_embedding", True) if use_state is None else use_state
     generate_bp = m.get("generate_bp", False) if generate_bp is None else generate_bp
@@ -67,9 +67,24 @@ def build_spec(cfg: dict, use_state: Optional[bool] = None,
         cont += [c for c in ["systolic_avg", "diastolic_avg"] if c not in cont]
     cat = list(m.get("generated_categorical", ["education", "bp_ever_checked"]))
     cat_levels = {"education": [0.0, 1.0, 2.0, 3.0], "bp_ever_checked": [0.0, 1.0]}
+    dropped = []
+    if training_df is not None:
+        minimum = float(m.get("optional_min_share", 0.8))
+        for col in m.get("optional_generated", ["height_cm", "weight_kg"]):
+            shares = [float(as_num(training_df.loc[as_num(training_df["sex"]) == sex, col]).notna().mean())
+                      if col in training_df else 0.0 for sex in (0, 1)]
+            if any(not np.isfinite(x) or x < minimum for x in shares):
+                if col in cont:
+                    cont.remove(col)
+                dropped.append(col)
+        if "height_cm" in dropped and "weight_kg" in cont:
+            cont.remove("weight_kg")
+        if dropped:
+            print("Optional generated variables dropped for insufficient per-sex support: " + ", ".join(dropped))
     return Spec(cond_names=list(levels), cond_levels=levels, use_state=bool(use_state),
                 n_states=int(m.get("n_states", 36)), cont_cols=cont, cat_cols=cat,
-                cat_levels={c: cat_levels[c] for c in cat}, generate_bp=bool(generate_bp))
+                cat_levels={c: cat_levels[c] for c in cat}, generate_bp=bool(generate_bp),
+                weight_derived="height_cm" in cont)
 
 
 # ── Scope ─────────────────────────────────────────────────────────────────────
@@ -202,6 +217,8 @@ class Arrays:
     cont: np.ndarray        # (n, n_cont) float32, normalised
     cat: np.ndarray         # (n, n_cat) int64 level index
     n_dropped: int
+    retained_mask: np.ndarray = None
+    support: dict = field(default_factory=dict)
 
 
 def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
@@ -220,7 +237,8 @@ def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
     if spec.use_state:
         ok &= st >= 0
     return Arrays(cond=cond[ok], state=st[ok], cont=cont[ok].astype(np.float32),
-                  cat=cat[ok].astype(np.int64), n_dropped=int((~ok).sum()))
+                  cat=cat[ok].astype(np.int64), n_dropped=int((~ok).sum()), retained_mask=ok,
+                  support={str(sex): int((ok & (as_num(df["sex"]).to_numpy() == sex)).sum()) for sex in (0, 1)})
 
 
 def condition_marginals(df: pd.DataFrame, spec: Spec, cfg: dict) -> dict:
@@ -248,3 +266,12 @@ def default_paths(models_dir: str = MODELS_DIR) -> dict:
         "train_log": os.path.join(models_dir, "cvae_train_log.json"),
         "model_card": os.path.join(models_dir, "model_card.json"),
     }
+
+
+def require_sex_support(arr, cfg, mock=False):
+    minimum = 30 if mock else int(cfg.get("model", {}).get("min_rows_per_sex", 5000))
+    if minimum < 30:
+        raise ValueError("min_rows_per_sex cannot be below privacy minimum 30")
+    if any(arr.support.get(str(sex), 0) < minimum for sex in (0, 1)):
+        raise ValueError(f"Insufficient complete rows per sex after encoding: require at least {minimum} for both sexes")
+    return arr.support

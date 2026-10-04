@@ -26,7 +26,7 @@ from models.common import (MOCK_BANNER, MODELS_DIR, data_dir, load_config, read_
                            split_path, write_json)
 from models.cvae import build_model
 from models.data import (DROP_COLUMNS, apply_scope, build_spec, condition_marginals,
-                         default_paths, fit_preproc, make_arrays, raw_generated)
+                         default_paths, fit_preproc, make_arrays, raw_generated, require_sex_support)
 
 
 def set_seed(seed: int):
@@ -98,9 +98,12 @@ def train(args, cfg):
         tr_raw = tr_raw.sample(args.max_rows, random_state=args.seed)
     tr, scope_tr = apply_scope(tr_raw, cfg, args.scope)
     va, scope_va = apply_scope(va_raw, cfg, args.scope)
-    spec = build_spec(cfg, use_state=not args.no_state, generate_bp=args.generate_bp)
+    spec = build_spec(cfg, use_state=not args.no_state, generate_bp=args.generate_bp, training_df=tr)
     pre = fit_preproc(raw_generated(tr, spec), spec)
     a_tr, a_va = make_arrays(tr, pre), make_arrays(va, pre)
+    require_sex_support(a_tr, cfg, mock=args.mock)
+    if len(a_va.cont) < 30:
+        raise ValueError("Insufficient complete validation rows")
     print(f"train rows in scope: {len(a_tr.cont):,} (dropped incomplete: {a_tr.n_dropped:,}); "
           f"val: {len(a_va.cont):,} (dropped {a_va.n_dropped:,})")
 

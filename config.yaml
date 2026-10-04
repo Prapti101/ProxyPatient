@@ -184,6 +184,9 @@ model:
   early_stopping_patience: 8     # on validation ELBO, after KL annealing
   state_embedding: true          # optional `state` condition (DHS 1-36), embedding dim below
   state_embedding_dim: 8
+  min_rows_per_sex: 5000
+  optional_generated: ["height_cm", "weight_kg"]
+  optional_min_share: 0.8
   n_states: 36
   generate_bp: false             # true adds systolic_avg/diastolic_avg (consistent with hypertension)
   glucose_head: "mixture"        # "mixture" (K components) or "gaussian"; on log(glucose_raw)
@@ -237,3 +240,6 @@ external_validation:
 baselines:
   subsample_rows: 100000     # stratified on sex x age band x BMI band x hypertension
   epochs: 100                # ctgan default is 300; 100 keeps Colab GPU runs < ~1 h
+
+preprocessing:
+  women_height_min_share: 0.5

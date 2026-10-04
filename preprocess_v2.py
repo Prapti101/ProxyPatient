@@ -41,7 +41,7 @@ GLUCOSE_THRESHOLD = 200
 # ── Column lists ──────────────────────────────────────────────────────────────
 WOMEN_COLS = [
     # Demographics
-    "v005", "v012", "v013", "v024", "v025", "v106", "v190",
+    "v001", "v002", "v003", "v005", "v012", "v013", "v024", "v025", "v106", "v190",
     # Anthropometry (women)
     "v437", "v445",
     # Waist/hip
@@ -149,6 +149,18 @@ def derive_bmi_band(bmi_series):
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
+
+def validate_women_height(df, minimum_share=None):
+    from models.common import load_config
+    minimum_share = (load_config().get("preprocessing", {}).get("women_height_min_share", 0.5)
+                     if minimum_share is None else minimum_share)
+    if not 0 <= minimum_share <= 1:
+        raise ValueError("women_height_min_share must be between 0 and 1")
+    share = pd.to_numeric(df["height_cm"], errors="coerce").notna().mean()
+    if not np.isfinite(share) or share < minimum_share:
+        raise ValueError("Women's household height linkage failed: check v001/v002/v003 and ha3; "
+                         f"non-missing share must be at least {minimum_share:.0%}")
+
 
 def main():
     os.makedirs(PROC_DIR, exist_ok=True)
@@ -300,6 +312,8 @@ def main():
             df_w["height_cm"] = np.nan
     else:
         df_w["height_cm"] = np.nan
+
+    validate_women_height(df_w)
 
     # Select output columns
     WOMEN_OUT = [

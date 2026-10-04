@@ -120,8 +120,9 @@ class CVAEBundle:
             if c in units:
                 units[c] = np.clip(units[c], self.pre.lo[c], self.pre.hi[c])
         units["bmi"] = np.floor(units["bmi"] * 100) / 100   # floor keeps it inside [lo, hi)
-        units["height_cm"] = np.round(units["height_cm"], 1)
-        units["weight_kg"] = np.round(units["bmi"] * (units["height_cm"] / 100.0) ** 2, 1)
+        if self.spec.weight_derived:
+            units["height_cm"] = np.round(units["height_cm"], 1)
+            units["weight_kg"] = np.round(units["bmi"] * (units["height_cm"] / 100.0) ** 2, 1)
         for c in ("waist_cm", "hip_cm"):
             units[c] = np.round(units[c], 1)
         for c in ("systolic_avg", "diastolic_avg"):
