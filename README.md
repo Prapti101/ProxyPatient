@@ -116,13 +116,26 @@ ProxyPatient/
 
 ## Shared Contracts (Critical — Read Before Coding)
 
-### `generate(condition, n, seed) -> pd.DataFrame`
+### `generate(condition, n=1000, seed=42) -> pd.DataFrame`
 ```python
-# P2 must implement this exact signature in backend/generator.py
-# condition: dict of what-if variables (NO glucose allowed)
-# n: cohort size (int)
-# seed: random seed (int)
-# Returns: DataFrame without glucose columns
+# backend/generator.py (P2's CVAE). Enabled with env var PP_GENERATOR=real;
+# without it backend/main.py keeps using backend/generator_stub.py.
+# condition: dict, any subset of sex ("female"/"male" or 0/1), age_band
+#            ("15-24", "25-34", "35-49"/"35-54"; either label is accepted and
+#            the sex-appropriate one is echoed), residence, wealth_quintile,
+#            bmi_band, hypertension (0/1), tobacco (0/1), alcohol (0/1), state (1-36).
+#            Glucose is NEVER a condition (ValueError). Unspecified keys are drawn
+#            from models/condition_marginals.json as independent marginals, so
+#            the UI should send a FULL baseline profile plus the what-if changes.
+# n:         100-10,000.  seed: deterministic per seed.
+# Returns:   n NEW rows sampled from the CVAE decoder, ORIGINAL units: the
+#            conditions, age, bmi, weight_kg, height_cm, waist_cm, hip_cm,
+#            education, bp_ever_checked, glucose_raw (mg/dL),
+#            elevated_glucose_proxy (derived from the generated glucose_raw and
+#            outcome.threshold_mg_dl) and is_synthetic=True.
+#            (This replaces the old v1 text "returns a DataFrame without glucose columns".)
+# Weights:   models/cvae_weights.pt (git-ignored; trained by models/train_cvae.py,
+#            see models/RUN_ON_COLAB.md). Override with PP_CVAE_WEIGHTS.
 ```
 
 ### `outcome_stat(df, rule) -> dict`
