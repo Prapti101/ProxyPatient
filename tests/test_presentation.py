@@ -124,3 +124,13 @@ def test_demo_builder_supports_three_full_profiles(tmp_path, monkeypatch):
         for p in r.json()['profiles']:
             assert p['n_train'] >= 500 and set(FULL) == set(p['condition'])
             assert c.post('/generate', json={'condition': p['condition'], 'n': 100}).status_code == 200
+
+
+@pytest.mark.parametrize('glucose,expected', [(100., 0.), (250., 1.)])
+def test_wilson_interval_handles_extreme_outcomes(glucose, expected):
+    import pandas as pd
+    from backend.outcome_stat_stub import outcome_stat
+    r = outcome_stat(pd.DataFrame({'glucose_raw': [glucose]*100}), {'threshold_mg_dl': 200})
+    assert r['rate'] == expected
+    assert r['ci_low'] < r['ci_high'] and r['ci_low'] <= expected <= r['ci_high']
+    assert r['monte_carlo_interval']['method'] == 'Wilson'

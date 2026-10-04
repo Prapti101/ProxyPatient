@@ -16,10 +16,19 @@ def outcome_stat(df, rule, seed=42, n_bootstrap=None):
     values = (glucose[finite] >= threshold).astype(float)
     if len(values) < 30:
         raise ValueError('Insufficient finite generated glucose readings (minimum 30)')
-    rng = np.random.default_rng(seed)
-    iterations = n_bootstrap if n_bootstrap is not None else int(cfg['outcome_stat']['bootstrap_iterations'])
+    from scipy.stats import norm
     level = float(cfg['outcome_stat']['ci_level'])
-    rates = rng.binomial(len(values), values.mean(), size=iterations) / len(values)
-    low, high = np.quantile(rates, [(1-level)/2, (1+level)/2])
-    return dict(rate=round(float(values.mean()), 6), ci_low=round(float(low), 6),
-                ci_high=round(float(high), 6), n=len(values), rate_pct=round(float(values.mean())*100, 4))
+    if not 0 < level < 1:
+        raise ValueError('ci_level must lie strictly between zero and one')
+    n = len(values)
+    rate = float(values.mean())
+    z = float(norm.ppf((1+level)/2))
+    denominator = 1 + z*z/n
+    centre = (rate + z*z/(2*n))/denominator
+    half = z*np.sqrt(rate*(1-rate)/n + z*z/(4*n*n))/denominator
+    low, high = max(0., centre-half), min(1., centre+half)
+    from models.privacy import suppress_count
+    return dict(rate=round(rate, 6), ci_low=round(low, 6), ci_high=round(high, 6), n=n,
+                rate_pct=round(rate*100, 4), dropped_nonfinite=suppress_count(int((~finite).sum())),
+                monte_carlo_interval={'low': round(low, 6), 'high': round(high, 6), 'level': level,
+                                      'method': 'Wilson', 'note': 'Conditional on fitted model; not model or survey uncertainty'})
