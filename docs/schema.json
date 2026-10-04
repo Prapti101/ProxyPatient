@@ -441,8 +441,69 @@
       "note": "Divide raw v445 by 100 before banding."
     },
     "hypertension": {
-      "note": "Derived from blood pressure measurement variables. Exact logic TBD after checking BP variable availability in biomarker module.",
-      "type": "binary"
+      "source_women": "sb25s, sb29s, sb25d, sb29d, sb21",
+      "source_men":   "smb25s, smb29s, smb25d, smb29d, smb21",
+      "rule": "1 if systolic_avg >= 140 OR diastolic_avg >= 90 OR on_bp_medication == 1, else 0. NaN if BP not measured AND on_bp_medication != 1.",
+      "label": "hypertension (measured)",
+      "type": "binary",
+      "role": "conditioning",
+      "coverage": "96.5% women, 94.3% men",
+      "rate": "12.02% women, 19.04% men, 12.91% overall"
+    },
+    "systolic_avg": {
+      "source_women": "sb25s, sb29s (2nd and 3rd readings)",
+      "source_men":   "smb25s, smb29s",
+      "rule": "mean of 2nd and 3rd readings; fallback to 1st if both missing",
+      "label": "average systolic blood pressure (mmHg)",
+      "type": "continuous",
+      "role": "feature",
+      "missing_codes_bp": [0, 994, 995, 996, 997, 998, 999]
+    },
+    "diastolic_avg": {
+      "source_women": "sb25d, sb29d",
+      "source_men":   "smb25d, smb29d",
+      "rule": "mean of 2nd and 3rd readings; fallback to 1st if both missing",
+      "label": "average diastolic blood pressure (mmHg)",
+      "type": "continuous",
+      "role": "feature",
+      "missing_codes_bp": [0, 994, 995, 996, 997, 998, 999]
+    },
+    "bp_measured": {
+      "rule": "1 if at least one valid 2nd or 3rd BP reading exists, else 0",
+      "label": "blood pressure measured flag",
+      "type": "binary",
+      "role": "flag"
+    },
+    "on_bp_medication": {
+      "source_women": "sb21",
+      "source_men":   "smb21",
+      "label": "currently taking medicine for high blood pressure",
+      "type": "binary",
+      "role": "feature",
+      "values": {"0": "no", "1": "yes"},
+      "missing_codes": [8, 9]
+    },
+    "self_reported_hypertension": {
+      "source_women": "s728b",
+      "source_men":   "sm627b",
+      "label": "told by doctor they have high blood pressure (self-reported)",
+      "type": "binary",
+      "role": "reference_only",
+      "note": "NOT a conditioning variable. Real variation confirmed (not all-zero coding). Code 8=don't know treated as NaN."
+    },
+    "bmi_measured": {
+      "rule": "1 if BMI was actually measured (from v445 for women, hb40 for men via household file), else 0",
+      "label": "BMI measured flag",
+      "type": "binary",
+      "role": "flag",
+      "note": "0 for ~3.4% women (pregnant/excluded) and ~5.8% men (not matched in household file)"
+    },
+    "height_cm": {
+      "source_women": "ha3 from IAPR7EDT household file (divide by 10)",
+      "source_men":   "hb3 from IAPR7EDT household file (divide by 10)",
+      "label": "height in cm",
+      "type": "continuous",
+      "role": "feature"
     }
   }
 }

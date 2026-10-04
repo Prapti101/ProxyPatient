@@ -220,11 +220,16 @@ api:
 # -----------------------------------------------------------------------------
 external_validation:
   name: "NMB-2017"
+  status: "PERMANENTLY_SKIPPED"
+  reason: >
+    Mendeley DOI 10.17632/twp8xw6p25.1 contains only a PDF — no CSV or data file.
+    Cannot be used for validation. P3 should use test_v2.parquet (held-out, 119,794 rows)
+    for all fidelity and outcome validation.
   measure: "HbA1c"
   population: "high-risk Indian adults (n=7496)"
   note: >
-    Different population and different glucose measure from NFHS-5.
-    Use only for external sanity check, never merge rows with NFHS-5.
+    Different population and different glucose measure (HbA1c) from NFHS-5.
+    Would have been used only for external sanity check, never merged with NFHS-5.
 
 # -----------------------------------------------------------------------------
 # BASELINES (P2): TVAE and CTGAN from the `ctgan` package
