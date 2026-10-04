@@ -224,3 +224,29 @@ def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path):
     for path in (tmp_path/'safe_outputs').glob('*.json'):
         assert not small_count_paths(json.loads(path.read_text())), path.name
     assert json.loads((tmp_path/'safe_outputs/manifest.json').read_text())['mock'] is True
+
+
+def test_parser_negation_outcome_rejection_and_confirmation(real_generator_env):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    with TestClient(app) as c:
+        r = c.post('/parse', json={'text': 'urban women aged 25-34 do not smoke and drink no alcohol'})
+        assert r.status_code == 200
+        d = r.json()
+        assert d['parsed_condition']['tobacco'] == 0 and d['parsed_condition']['alcohol'] == 0
+        assert d['confidence'] is None and d['requires_confirmation']
+        assert c.post('/parse', json={'text': 'elevated glucose'}).status_code == 422
+        assert c.post('/parse', json={'text': 'improved BMI'}).json()['unresolved']
+        r = c.post('/parse', json={'text': 'improved BMI', 'baseline': {'bmi_band': 'obese'}})
+        assert r.json()['parsed_condition']['bmi_band'] == 'overweight'
+        assert not c.post('/parse', json={'text': 'unchanged'}).json()['parsed_condition']['sex']
+
+
+def test_api_version_and_real_parser_disabled(monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    monkeypatch.delenv('PP_DEMO_MOCK', raising=False)
+    with TestClient(app) as c:
+        assert c.get('/openapi.json').json()['info']['version'] == '2.0.0'
+        assert c.post('/parse', json={'text': 'urban women'}).status_code == 403
+        assert c.get('/validation').json()['status'] == 'pending'

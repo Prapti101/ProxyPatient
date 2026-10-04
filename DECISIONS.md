@@ -122,7 +122,7 @@ If `on_bp_medication == 1` and BP is missing → hypertension = 1 (medication us
 
 ## D9. NMB-2017 external validation — SKIPPED
 
-Mendeley DOI 10.17632/twp8xw6p25.1 contains only a PDF, no CSV/data file. External validation on NMB-2017 is permanently NOT DONE. P3 should plan validation on the held-out `test_v2.parquet` only.
+Mendeley DOI 10.17632/twp8xw6p25.1 contains only a PDF, no CSV/data file. External validation on NMB-2017 is permanently NOT DONE. P3 should plan validation on the held-out `val_v2.parquet (development; test reserved for acknowledged final evaluation)` only.
 
 ---
 

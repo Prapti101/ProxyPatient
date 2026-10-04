@@ -54,10 +54,20 @@ logger = logging.getLogger("proxypatient")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS_DIR = os.path.join(BASE_DIR, "docs")
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(application):
+    load_assets()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title       = "ProxyPatient API",
     description = (
-        "Synthetic Patient Scenario Generation for Diabetes Risk Awareness. "
+        "Synthetic Scenario Exploration for Elevated Glucose (Proxy). "
         "STRICTLY generative AI. NOT a diagnostic tool. "
         "Source: NFHS-5 India (2019-21)."
     ),
@@ -78,22 +88,11 @@ _schema     = None
 _aggregates = None
 _validation = None
 
-# Load glucose threshold from config.yaml (never hardcode)
-def _load_config():
-    config_path = os.path.join(os.path.dirname(DOCS_DIR), "config.yaml")
-    try:
-        import yaml
-        with open(config_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        return cfg
-    except Exception:
-        return {}
-
-_cfg  = _load_config()
-RULE  = {"threshold_mg_dl": _cfg.get("outcome", {}).get("threshold_mg_dl", 200)}
+from models.common import load_config
+_cfg = load_config()
+RULE = {"threshold_mg_dl": _cfg["outcome"]["threshold_mg_dl"]}
 
 
-@app.on_event("startup")
 def load_assets():
     global _schema, _aggregates, _validation
     try:
@@ -276,49 +275,58 @@ def get_validation():
     Includes fidelity scores, KS/Wasserstein stats, model comparison table.
     Returns 'pending' if P3 has not yet delivered the report.
     """
-    return _validation
+    root = os.environ.get("PP_MODEL_DIR", os.path.join(BASE_DIR, "models"))
+    path = os.path.join(root, "validation_report.json")
+    if not os.path.isfile(path):
+        return {"status": "pending", "note": "No real-run validation report supplied"}
+    with open(path, encoding="utf-8") as f:
+        report = json.load(f)
+    if report.get("status") not in ("complete", "pending"):
+        return {"status": "pending", "note": "Validation adapter requires explicit complete/pending status"}
+    return report
 
 
-@app.post("/parse", tags=["NLP"])
+@app.post("/parse", response_model=ParseResponse, tags=["NLP"])
 def parse_condition(req: ParseRequest):
-    """
-    (Optional) Parse a natural language condition string into a Condition object.
-    Implemented by P3 using BERT. Returns a basic rule-based parse as stub.
-    """
-    text  = req.text.lower()
-    cond  = {}
-
-    # Rule-based stub — P3 replaces with BERT parser
-    if "female" in text or "women" in text or "woman" in text:
-        cond["sex"] = "female"
-    elif "male" in text or "men" in text or "man" in text:
-        cond["sex"] = "male"
-
-    if "urban" in text:
-        cond["residence"] = "urban"
-    elif "rural" in text:
-        cond["residence"] = "rural"
-
-    for band in ["15-24", "25-34", "35-49", "35-54"]:
+    """Demo-only rule-based parser. Returns proposals for confirmation; runs nothing."""
+    import re
+    if os.environ.get("PP_DEMO_MOCK") != "1":
+        raise HTTPException(403, "Rule-based parser is demo-only; select explicit full conditions in real mode")
+    text = req.text.lower()
+    if re.search(r"glucose|hba1c|sb74|smb74", text):
+        raise HTTPException(422, "glucose is the outcome, not an input")
+    condition, unresolved = {}, []
+    if re.search(r"\bunchanged\b|same as baseline", text):
+        return ParseResponse(parsed_condition=Condition(), raw_text=req.text)
+    if re.search(r"\b(female|women|woman)\b", text):
+        condition["sex"] = 0
+    elif re.search(r"\b(male|men|man)\b", text):
+        condition["sex"] = 1
+    for residence in ("urban", "rural"):
+        if re.search(r"\b"+residence+r"\b", text):
+            condition["residence"] = residence
+    for band in sorted(set(_cfg["whatif_options"]["age_band"]["women_options"] + _cfg["whatif_options"]["age_band"]["men_options"])):
         if band in text:
-            cond["age_band"] = band
-            break
-
-    if "tobacco" in text or "smok" in text:
-        cond["tobacco"] = "1"
-    if "alcohol" in text or "drink" in text:
-        cond["alcohol"] = "1"
-
-    if "obese" in text:
-        cond["bmi_band"] = "obese"
-    elif "overweight" in text:
-        cond["bmi_band"] = "overweight"
-
-    return ParseResponse(
-        parsed_condition = Condition(**cond),
-        raw_text         = req.text,
-        confidence       = 0.6 if cond else 0.1
-    )
+            condition["age_band"] = band
+    for key, words in [("tobacco", r"tobacco|smok(?:e|ing|er)"), ("alcohol", r"alcohol|drink(?:ing)?")]:
+        negative = re.search(r"\b(?:no|without|not|never|do not|does not|don't)\s+(?:use\s+|consume\s+|drink\s+)?(?:"+words+r")\b", text)
+        negative = negative or (key == "alcohol" and re.search(r"drink\s+no\s+alcohol", text))
+        if negative:
+            condition[key] = 0
+        elif re.search(r"\b(?:"+words+r")\b", text):
+            condition[key] = 1
+    if "improved bmi" in text:
+        levels = list(_cfg["bmi"]["bands"])
+        baseline = req.baseline.bmi_band if req.baseline else None
+        if baseline in levels and levels.index(baseline) > levels.index("normal"):
+            condition["bmi_band"] = levels[levels.index(baseline)-1]
+        else:
+            unresolved.append("improved BMI: choose a concrete BMI band")
+    else:
+        for band in _cfg["bmi"]["bands"]:
+            if re.search(r"\b"+band+r"\b", text):
+                condition["bmi_band"] = band
+    return ParseResponse(parsed_condition=Condition(**condition), raw_text=req.text, unresolved=unresolved)
 
 
 def _state_options():
