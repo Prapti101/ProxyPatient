@@ -1,0 +1,22 @@
+# ProxyPatient: pinned versions (tested with Python 3.11)
+# Backend
+fastapi==0.142.2
+uvicorn==0.50.2
+pydantic==2.13.4
+httpx==0.28.1
+# Data
+numpy==2.4.6
+pandas==2.3.3
+pyarrow==25.0.1
+PyYAML==6.0.1
+joblib==1.6.0
+scipy==1.17.1
+scikit-learn==1.9.1
+pyreadstat==1.3.6
+# Models (P2). On Colab keep the preinstalled CUDA torch; on a CPU-only machine:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1
+ctgan==0.12.1
+rdt==1.22.0
+# Tests
+pytest==9.1.1

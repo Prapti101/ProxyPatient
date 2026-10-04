@@ -175,6 +175,26 @@ model:
   hidden_dims: [128, 64]
   kl_annealing_epochs: 10
   seed: 42
+  # ── P2 additions ──
+  scope: "complete_conditions"   # glucose known AND bmi_measured==1 AND hypertension known
+  beta: 1.0                      # KL weight after annealing
+  lr: 0.001
+  batch_size: 1024
+  max_epochs: 100
+  early_stopping_patience: 8     # on validation ELBO, after KL annealing
+  state_embedding: true          # optional `state` condition (DHS 1-36), embedding dim below
+  state_embedding_dim: 8
+  n_states: 36
+  generate_bp: false             # true adds systolic_avg/diastolic_avg (consistent with hypertension)
+  glucose_head: "mixture"        # "mixture" (K components) or "gaussian"; on log(glucose_raw)
+  glucose_mixture_components: 3
+  glucose_clip_mg_dl: [20, 600]  # plausibility clip for generated glucose
+  # Generated variables. weight_kg is DERIVED as bmi * (height_cm/100)^2 so the three agree.
+  generated_continuous: ["age", "bmi", "height_cm", "waist_cm", "hip_cm", "log_glucose"]
+  generated_categorical: ["education", "bp_ever_checked"]
+  # Age bands are harmonised inside the model to 15-24 / 25-34 / 35+ (35-49 women,
+  # 35-54 men); either sex-specific label is accepted and the output echoes the
+  # sex-appropriate one.
 
 # -----------------------------------------------------------------------------
 # FASTAPI BACKEND
@@ -193,6 +213,8 @@ api:
 
 # -----------------------------------------------------------------------------
 # EXTERNAL VALIDATION DATASET (NMB-2017)
+# STALE (P2 note): no NMB-2017 data file exists in the project, so there is
+# currently NO external validation. Kept for reference only.
 # NEVER merge with NFHS-5. Used ONLY for external fidelity check by P3.
 # DOI: 10.17632/twp8xw6p25.1 (CC0)
 # -----------------------------------------------------------------------------
@@ -203,3 +225,10 @@ external_validation:
   note: >
     Different population and different glucose measure from NFHS-5.
     Use only for external sanity check, never merge rows with NFHS-5.
+
+# -----------------------------------------------------------------------------
+# BASELINES (P2): TVAE and CTGAN from the `ctgan` package
+# -----------------------------------------------------------------------------
+baselines:
+  subsample_rows: 100000     # stratified on sex x age band x BMI band x hypertension
+  epochs: 100                # ctgan default is 300; 100 keeps Colab GPU runs < ~1 h
