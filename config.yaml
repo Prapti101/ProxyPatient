@@ -182,12 +182,11 @@ model:
   batch_size: 1024
   max_epochs: 100
   early_stopping_patience: 8     # on validation ELBO, after KL annealing
-  state_embedding: true          # optional `state` condition (DHS 1-36), embedding dim below
+  state_embedding: true          # optional `state` condition (supported training codes), embedding dim below
   state_embedding_dim: 8
   min_rows_per_sex: 5000
   optional_generated: ["height_cm", "weight_kg"]
   optional_min_share: 0.8
-  n_states: 36
   generate_bp: false             # true adds systolic_avg/diastolic_avg (consistent with hypertension)
   glucose_head: "mixture"        # "mixture" (K components) or "gaussian"; on log(glucose_raw)
   glucose_mixture_components: 3

@@ -42,7 +42,7 @@ def test_scope_and_train_only_normalisation():
     sc, rep = apply_scope(df, CFG)
     assert rep["n_in_scope"] == len(sc) < len(df)
     assert sc["glucose_raw"].notna().all() and (sc["bmi_measured"] == 1).all() and sc["hypertension"].notna().all()
-    spec = build_spec(CFG)
+    spec = build_spec(CFG, training_df=sc)
     pre = fit_preproc(raw_generated(sc, spec), spec)
     arr = make_arrays(sc, pre)
     assert arr.cont.shape[1] == len(spec.cont_cols) and np.isfinite(arr.cont).all()

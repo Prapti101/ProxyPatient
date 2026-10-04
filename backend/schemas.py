@@ -26,7 +26,10 @@ VALID_BMI_BAND    = ["underweight", "normal", "overweight", "obese"]
 VALID_TOBACCO     = ["0", "1"]    # 0=no, 1=yes
 VALID_ALCOHOL     = ["0", "1"]    # 0=no, 1=yes
 VALID_HYPERTENSION = ["0", "1"]   # 0=not hypertensive, 1=hypertensive or on BP medication
-VALID_STATE       = [str(i) for i in range(1, 37)]  # DHS state codes 1-36 (India states/UTs)
+def supported_state_codes():
+    from backend.generator import _load
+    return _load()[0].spec.state_codes
+
 
 # Glucose is NEVER a valid conditioning variable
 FORBIDDEN_CONDITIONS = ["glucose", "glucose_raw", "elevated_glucose_proxy",
@@ -43,7 +46,7 @@ class Condition(BaseModel):
     tobacco:        Optional[str] = Field(None, description="0=no, 1=yes")
     alcohol:        Optional[str] = Field(None, description="0=no, 1=yes")
     hypertension:   Optional[str] = Field(None, description="0=not hypertensive, 1=hypertensive or on BP medication")
-    state:          Optional[str] = Field(None, description="DHS state code 1-36 (Indian states/UTs)")
+    state:          Optional[str] = Field(None, description="Supported raw state code exposed by /options")
 
     @validator("sex")
     def validate_sex(cls, v):
@@ -77,8 +80,8 @@ class Condition(BaseModel):
 
     @validator("state")
     def validate_state(cls, v):
-        if v is not None and str(v) not in VALID_STATE:
-            raise ValueError(f"state must be a DHS state code 1-36, got '{v}'")
+        if v is not None and int(v) not in supported_state_codes():
+            raise ValueError(f"state must be a supported raw state code, got '{v}'")
         return v
 
 

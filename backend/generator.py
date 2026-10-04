@@ -18,7 +18,7 @@ condition: any subset of
     hypertension     0/1
     tobacco          0/1   (maps to any_tobacco)
     alcohol          0/1
-    state            1-36 (DHS code; only if the model was trained with state)
+    state            supported raw code from the checkpoint mapping
 Unspecified keys are sampled from models/condition_marginals.json as
 INDEPENDENT marginals, so the UI should send a FULL baseline profile plus the
 what-if changes. Invalid values raise ValueError.
@@ -121,10 +121,10 @@ def _parse_condition(condition: dict, bundle) -> dict:
             try:
                 st = int(str(v).strip())
             except ValueError:
-                raise ValueError(f"state must be an integer DHS code 1-{spec.n_states}; got {v!r}")
-            if not 1 <= st <= spec.n_states:
-                raise ValueError(f"state must be 1-{spec.n_states}; got {v!r}")
-            out["state"] = st - 1
+                raise ValueError(f"state must be an integer supported DHS code; got {v!r}")
+            if st not in spec.state_codes:
+                raise ValueError(f"state must be one of {spec.state_codes}; got {v!r}")
+            out["state"] = spec.state_codes.index(st)
         elif key in ("hypertension", "tobacco", "alcohol"):
             out[key] = _parse_binary(key, v)
         else:
@@ -179,7 +179,7 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         if "state" in parsed:
             state_idx = np.full(n, parsed["state"], dtype=np.int64)
         else:
-            codes = [str(s) for s in range(1, spec.n_states + 1)]
+            codes = [str(s) for s in spec.state_codes]
             state_idx = rng.choice(spec.n_states, size=n, p=_marginal_probs(marg, "state", codes))
             filled.append("state")
 
@@ -202,7 +202,7 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         "alcohol": cond_idx[:, ci["alcohol"]].astype(int),
     })
     if state_idx is not None:
-        df["state"] = (state_idx + 1).astype(int)
+        df["state"] = np.asarray(spec.state_codes, dtype=int)[state_idx]
     for c in ["age", "bmi", "weight_kg", "height_cm", "waist_cm", "hip_cm",
               "systolic_avg", "diastolic_avg", "education", "bp_ever_checked", "glucose_raw"]:
         if c in gen.columns:

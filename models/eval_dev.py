@@ -76,7 +76,8 @@ def gen_cvae(path, real_df, cf, spec_eval, seed):
     cond_idx = encode_conditions(cf, b.spec)
     st = state_index(real_df, b.spec) if b.spec.use_state else None
     if st is not None:
-        st = np.where(st < 0, 0, st)
+        if (st < 0).any():
+            raise ValueError("Evaluation contains unsupported state codes; no substitution is allowed")
     t0 = time.time()
     g = b.sample(cond_idx, st, seed=seed)
     secs = time.time() - t0

@@ -28,3 +28,17 @@ def test_height_linkage_guard_and_columns():
         validate_women_height(df)
     df['height_cm'] = 150.
     validate_women_height(df)
+
+
+def test_noncontiguous_state_mapping_and_unknown_rejection(real_generator_env):
+    from backend import generator
+    from models.data import state_index
+    generator._BUNDLES.clear()
+    bundle, _ = generator._load()
+    assert 37 in bundle.spec.state_codes and 26 not in bundle.spec.state_codes
+    frame = make_mock_v2(100)
+    frame['state'] = 37
+    assert (state_index(frame, bundle.spec) == bundle.spec.state_codes.index(37)).all()
+    assert (generator.generate({'state': 37}, 100)['state'] == 37).all()
+    with pytest.raises(ValueError, match='state'):
+        generator.generate({'state': 26}, 100)

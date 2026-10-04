@@ -35,6 +35,7 @@ class Spec:
     cat_cols: List[str]                       # generated categorical
     cat_levels: Dict[str, List[float]]
     generate_bp: bool
+    state_codes: List[int] = field(default_factory=list)
     weight_derived: bool = True               # weight_kg = bmi * (height/100)^2
 
     def to_dict(self):
@@ -81,8 +82,17 @@ def build_spec(cfg: dict, use_state: Optional[bool] = None,
             cont.remove("weight_kg")
         if dropped:
             print("Optional generated variables dropped for insufficient per-sex support: " + ", ".join(dropped))
+    state_codes = []
+    if training_df is not None and use_state:
+        values = as_num(training_df["state"])
+        if ((values.dropna() % 1) != 0).any():
+            raise ValueError("State codes must be integers")
+        counts = values.value_counts()
+        state_codes = sorted(int(code) for code, count in counts.items() if count >= min_cell(cfg))
+        if not state_codes:
+            raise ValueError("No state codes have privacy-safe training support")
     return Spec(cond_names=list(levels), cond_levels=levels, use_state=bool(use_state),
-                n_states=int(m.get("n_states", 36)), cont_cols=cont, cat_cols=cat,
+                n_states=max(len(state_codes), 1), state_codes=state_codes, cont_cols=cont, cat_cols=cat,
                 cat_levels={c: cat_levels[c] for c in cat}, generate_bp=bool(generate_bp),
                 weight_derived="height_cm" in cont)
 
@@ -152,8 +162,9 @@ def encode_conditions(cf: pd.DataFrame, spec: Spec) -> np.ndarray:
 
 
 def state_index(df: pd.DataFrame, spec: Spec) -> np.ndarray:
-    s = as_num(df["state"]).fillna(0).astype(int).to_numpy() - 1      # DHS 1..36 -> 0..35
-    return np.where((s >= 0) & (s < spec.n_states), s, -1)
+    values = as_num(df["state"])
+    mapping = {code: index for index, code in enumerate(spec.state_codes)}
+    return values.map(mapping).fillna(-1).to_numpy(dtype=np.int64)
 
 
 def raw_generated(df: pd.DataFrame, spec: Spec) -> pd.DataFrame:
@@ -254,7 +265,7 @@ def condition_marginals(df: pd.DataFrame, spec: Spec, cfg: dict) -> dict:
     # age distribution within each harmonised band by sex is learned by the model,
     # state marginal is needed when state is not given
     sv = as_num(df["state"]).value_counts()
-    out["state"] = {str(int(s)): (int(n) if n >= k else None) for s, n in sv.items() if not pd.isna(s)}
+    out["state"] = {str(int(s)): (int(n) if n >= k else None) for s, n in sv.items() if not pd.isna(s) and (not spec.use_state or int(s) in spec.state_codes)}
     return out
 
 

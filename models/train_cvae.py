@@ -164,7 +164,7 @@ def train(args, cfg):
     weights = args.weights_out or paths["weights"]
     torch.save(ckpt, weights)
     pre.to_json(paths["preproc"])
-    write_json(condition_marginals(tr, spec, cfg), paths["marginals"])
+    write_json(condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg), paths["marginals"])
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
     print(f"saved weights -> {weights} (git-ignored; do not commit)")

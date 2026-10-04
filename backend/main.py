@@ -141,7 +141,7 @@ def get_schema():
     """
     if _schema is None:
         raise HTTPException(503, "Schema not loaded. Check server startup logs.")
-    return _schema
+    return {**_schema, "supported_state_codes": _state_options()}
 
 
 @app.get("/profiles", response_model=ProfilesResponse, tags=["Data"])
@@ -335,3 +335,16 @@ def parse_condition(req: ParseRequest):
         raw_text         = req.text,
         confidence       = 0.6 if cond else 0.1
     )
+
+
+def _state_options():
+    from backend.generator import _load
+    try:
+        return _load()[0].spec.state_codes
+    except RuntimeError:
+        return []
+
+
+@app.get("/options", tags=["Data"])
+def options():
+    return {"state": _state_options()}
