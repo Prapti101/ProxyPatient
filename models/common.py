@@ -74,8 +74,12 @@ def guard_filename(path: str, final_test: bool) -> None:
         raise LockedTestError(f"Refusing to read {os.path.basename(path)} without --final-test.")
 
 
-def read_parquet(path: str, final_test: bool = False, columns=None) -> pd.DataFrame:
-    guard_filename(path, final_test)
+def read_parquet(path: str, final_test: bool = False, columns=None, membership_only=False) -> pd.DataFrame:
+    if membership_only:
+        if columns != ["_row_id"]:
+            raise LockedTestError("Membership-only access permits _row_id only; never test outcomes")
+    else:
+        guard_filename(path, final_test)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing data file: {os.path.basename(path)} (looked in {os.path.dirname(path)})")
     return pd.read_parquet(path, columns=columns)

@@ -165,3 +165,36 @@ def test_mock_training_public_outputs_have_no_small_counts(mock_model_dir):
         assert not small_count_paths(json.loads(path.read_text())), path.name
     log = json.loads((mock_model_dir/'cvae_train_log.json').read_text())
     assert log['scope_train']['steps'][0]['n_excluded_men'] is None or log['scope_train']['steps'][0]['n_excluded_men'] >= 30
+
+
+def test_split_guards_preserve_membership_and_abort_on_mismatch():
+    from split_and_aggregate_v2 import build_splits, row_hash
+    df = make_mock_v2(1000)
+    with pytest.raises(ValueError, match='init-split'):
+        build_splits(df)
+    parts = build_splits(df, init_split=True)
+    rebuilt = build_splits(df, {k: v[['_row_id']] for k, v in parts.items()})
+    assert {k: row_hash(v) for k, v in parts.items()} == {k: row_hash(v) for k, v in rebuilt.items()}
+    with pytest.raises(ValueError, match='mismatch'):
+        build_splits(df.iloc[:-1], {k: v[['_row_id']] for k, v in parts.items()})
+    with pytest.raises(ValueError, match='Missing'):
+        build_splits(df, {'train': parts['train']})
+
+
+def test_nonlegacy_parquet_reads_are_centralized():
+    import ast
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for path in list(root.glob('*.py')) + list((root/'models').glob('*.py')) + list((root/'backend').glob('*.py')):
+        if path == root/'models/common.py':
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            assert not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == 'read_parquet'), f'Bypass in {path.name}:{node.lineno}'
+
+
+def test_id_only_membership_cannot_read_outcomes(tmp_path):
+    from models.common import read_parquet, LockedTestError
+    with pytest.raises(LockedTestError, match='ID|row_id'):
+        read_parquet(str(tmp_path/'test.parquet'), columns=['glucose_raw'], membership_only=True)

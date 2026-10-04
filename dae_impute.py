@@ -143,90 +143,9 @@ def impute_dae(df: pd.DataFrame,
     return df_out
 
 
-def benchmark_dae_vs_median(val_parquet=None, mask_frac=0.10, seed=42):
-    """
-    F4 benchmark: mask 10% of known waist_cm, hip_cm values.
-    Impute with (a) DAE, (b) column median from train.
-    Report RMSE per column. Aggregates only, no rows.
-    """
-    np.random.seed(seed)
-    if val_parquet is None:
-        val_parquet = os.path.join(PROC_DIR, "dae_imputed_val_v2.parquet")
-
-    val_df = pd.read_parquet(val_parquet)
-    train_df = pd.read_parquet(os.path.join(PROC_DIR, "dae_imputed_train_v2.parquet"))
-
-    BENCHMARK_COLS = ["waist_cm", "hip_cm"]
-    results = {}
-
-    for col in BENCHMARK_COLS:
-        known_idx = val_df[val_df[col].notna()].index
-        n_mask = int(len(known_idx) * mask_frac)
-        mask_idx = np.random.choice(known_idx, n_mask, replace=False)
-
-        true_vals = val_df.loc[mask_idx, col].values
-
-        # Median imputation
-        train_median = train_df[col].median()
-        median_preds = np.full(n_mask, train_median)
-        rmse_median  = float(np.sqrt(np.mean((true_vals - median_preds) ** 2)))
-
-        # DAE imputation
-        val_masked = val_df.copy()
-        val_masked.loc[mask_idx, col] = np.nan
-        val_imputed = impute_dae(val_masked)
-        dae_preds   = val_imputed.loc[mask_idx, col].values
-        rmse_dae    = float(np.sqrt(np.mean((true_vals - dae_preds) ** 2)))
-
-        results[col] = {
-            "n_masked":    int(n_mask),
-            "rmse_median": round(rmse_median, 4),
-            "rmse_dae":    round(rmse_dae, 4),
-            "dae_beats_median": rmse_dae < rmse_median,
-            "improvement_pct": round((rmse_median - rmse_dae) / rmse_median * 100, 2),
-        }
-
-    print("\n=== F4: DAE vs Median Benchmark ===")
-    print(f"{'Column':<15} {'RMSE Median':>14} {'RMSE DAE':>12} {'Better?':>10} {'Improvement':>14}")
-    print("-" * 70)
-    for col, r in results.items():
-        better = "[DAE]" if r["dae_beats_median"] else "[MEDIAN]"
-        print(f"  {col:<13} {r['rmse_median']:>14.4f} {r['rmse_dae']:>12.4f} {better:>10} {r['improvement_pct']:>13.2f}%")
-
-    return results
-
-
-def produce_imputed_test(seed=42):
-    """
-    Apply DAE inference (not training) to test_v2.parquet.
-    Saves dae_imputed_test_v2.parquet.
-    """
-    test_path = os.path.join(PROC_DIR, "test_v2.parquet")
-    if not os.path.exists(test_path):
-        print("  test_v2.parquet not found. Skipping.")
-        return
-    test_df = pd.read_parquet(test_path)
-    print(f"\n[F4] Imputing test split: {test_df.shape}")
-    test_imp = impute_dae(test_df)
-    out = os.path.join(PROC_DIR, "dae_imputed_test_v2.parquet")
-    test_imp.to_parquet(out, index=False)
-    print(f"  Saved dae_imputed_test_v2.parquet")
-    print(f"  Missing in IMPUTE_COLS after: {test_imp[['waist_cm','hip_cm']].isna().sum().sum():,}")
-
-    # Verify column means match train (to 1e-4 tolerance)
-    train_imp = pd.read_parquet(os.path.join(PROC_DIR, "dae_imputed_train_v2.parquet"))
-    for col in ["waist_cm", "hip_cm"]:
-        tr_mean  = train_imp[col].mean()
-        te_mean  = test_imp[col].mean()
-        diff     = abs(tr_mean - te_mean)
-        ok = "[OK]" if diff < 5.0 else "[CHECK]"   # within 5cm mean difference is expected
-        print(f"  {col}: train_mean={tr_mean:.4f} test_mean={te_mean:.4f} diff={diff:.4f} {ok}")
+def benchmark_dae_vs_median(*args, **kwargs):
+    raise RuntimeError("Circular legacy benchmark retired; use python -m models.check_dae_benchmark")
 
 
 if __name__ == "__main__":
-    print("=== dae_impute.py ===")
-    # 1. Benchmark
-    bm = benchmark_dae_vs_median()
-    # 2. Impute test split
-    produce_imputed_test()
-    print("\ndae_impute.py DONE.")
+    raise SystemExit("Library only. Development benchmark: python -m models.check_dae_benchmark. Test imputation requires the explicit final stage.")

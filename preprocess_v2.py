@@ -166,19 +166,8 @@ def main():
     os.makedirs(PROC_DIR, exist_ok=True)
     os.makedirs(DOCS_DIR, exist_ok=True)
 
-    # ── Load v1 hashes for comparison ─────────────────────────────────────────
-    print("[0/7] Computing v1 split hashes for later comparison...")
+    # Split membership validation belongs to split_and_aggregate_v2, never preprocessing.
     v1_hashes = {}
-    for split in ["train", "val", "test"]:
-        path = os.path.join(PROC_DIR, f"{split}.parquet")
-        if os.path.exists(path):
-            ids = pd.read_parquet(path, columns=["_row_id"])["_row_id"].sort_values().values
-            h = hashlib.sha256(ids.tobytes()).hexdigest()
-            v1_hashes[split] = h
-            print(f"  v1 {split} hash: {h}")
-        else:
-            print(f"  v1 {split}.parquet NOT FOUND")
-    print()
 
     # ── 1. Load Women ──────────────────────────────────────────────────────────
     print("[1/7] Loading Women's file (usecols only)...")

@@ -12,6 +12,7 @@ Glucose never touched.
 """
 
 import os, sys, hashlib, joblib
+from models.common import read_parquet
 import pandas as pd
 import numpy as np
 import torch
@@ -210,7 +211,6 @@ def impute(df, model, fit_stats, bmi_measured_col="bmi_measured"):
 
 def recompute_bmi_band(df):
     """Recompute bmi_band from bmi column where bmi_measured=1."""
-    import pandas as pd
     df = df.copy()
     measured = df["bmi_measured"] == 1
     df.loc[measured, "bmi_band"] = pd.cut(
@@ -234,9 +234,8 @@ def fix_dtypes(df):
 
 def main():
     print("[1/5] Loading v2 train and val splits...")
-    train_df = pd.read_parquet(os.path.join(PROC_DIR, "train_v2.parquet"))
-    val_df   = pd.read_parquet(os.path.join(PROC_DIR, "val_v2.parquet"))
-    combined = pd.read_parquet(os.path.join(PROC_DIR, "combined_clean_v2.parquet"))
+    train_df = read_parquet(os.path.join(PROC_DIR, "train_v2.parquet"))
+    val_df   = read_parquet(os.path.join(PROC_DIR, "val_v2.parquet"))
     print(f"  Train: {train_df.shape} | Val: {val_df.shape}")
 
     # Verify glucose unchanged
@@ -279,12 +278,10 @@ def main():
     print("\n[4/5] Imputing missing covariates (IMPUTE_COLS only)...")
     train_imp = impute(train_df, model, fit_stats)
     val_imp   = impute(val_df,   model, fit_stats)
-    combined_imp = impute(combined, model, fit_stats)
 
     # Recompute bmi_band
     train_imp = recompute_bmi_band(train_imp)
     val_imp   = recompute_bmi_band(val_imp)
-    combined_imp = recompute_bmi_band(combined_imp)
 
     # Verify glucose unchanged
     for label, orig, imp_df in [("train", train_df, train_imp), ("val", val_df, val_imp)]:
@@ -321,14 +318,12 @@ def main():
 
     fix_dtypes(train_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_train_v2.parquet"), index=False)
     fix_dtypes(val_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_val_v2.parquet"), index=False)
-    fix_dtypes(combined_imp).to_parquet(os.path.join(PROC_DIR, "dae_imputed_combined_v2.parquet"), index=False)
-    print("  Saved dae_imputed_train_v2, dae_imputed_val_v2, dae_imputed_combined_v2", flush=True)
+    print("  Saved dae_imputed_train_v2, dae_imputed_val_v2", flush=True)
 
     # ── Verify all saves ───────────────────────────────────────────────────────
     print("\n=== SAVE VERIFICATION ===", flush=True)
     for fname in ["dae_weights_v2.pt", "dae_fit_stats_v2.pkl",
-                  "dae_imputed_train_v2.parquet", "dae_imputed_val_v2.parquet",
-                  "dae_imputed_combined_v2.parquet"]:
+                  "dae_imputed_train_v2.parquet", "dae_imputed_val_v2.parquet"]:
         fp = os.path.join(PROC_DIR, fname)
         if os.path.exists(fp):
             print(f"  [OK] {fname}: {os.path.getsize(fp):,} bytes", flush=True)
