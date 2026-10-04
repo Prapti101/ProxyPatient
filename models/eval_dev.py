@@ -55,7 +55,8 @@ def real_units(df: pd.DataFrame, spec) -> pd.DataFrame:
             out[c] = gen[c]
     for c in spec.cat_cols:
         out[c] = gen[c]
-    out["weight_kg"] = pd.to_numeric(df["weight_kg"], errors="coerce")
+    if spec.weight_derived:
+        out["weight_kg"] = pd.to_numeric(df["weight_kg"], errors="coerce")
     return out
 
 
@@ -109,6 +110,8 @@ def gen_baseline(path, cf, spec, cfg, seed):
 def marginal_metrics(real, gen):
     out = {}
     for c in CONT:
+        if c not in real or c not in gen:
+            continue
         r, g = real[c].dropna().to_numpy(float), gen[c].dropna().to_numpy(float)
         sd = r.std() or 1.0
         out[c] = {"ks": round(float(ks_2samp(r, g).statistic), 5),
@@ -127,6 +130,8 @@ def numeric_matrix(df, spec, cfg):
         lv = spec.cond_levels[c]
         m[c] = df[c].map({lab: i for i, lab in enumerate(lv)}).astype(float)
     for c in CONT + CAT:
+        if c not in df:
+            continue
         m[c] = df[c].astype(float)
     m["glucose_raw"] = np.log(m["glucose_raw"])
     return m
@@ -254,7 +259,8 @@ def dcr(train_real, val_real, gen, spec, seed, n_ref=50_000, n_q=2_000):
 def _lr_X(df, spec):
     X = pd.get_dummies(df[spec.cond_names].astype(str), drop_first=False)
     for c in ["age", "bmi", "height_cm", "waist_cm", "hip_cm", "education", "bp_ever_checked"]:
-        X[c] = df[c].astype(float)
+        if c in df:
+            X[c] = df[c].astype(float)
     return X
 
 
@@ -279,12 +285,28 @@ def tstr(train_real, test_real, gen, spec, thr, seed):
             "features": "conditions + age, bmi, height, waist, hip, education, bp_ever_checked (no glucose)"}
 
 
+def coverage_report(conditions, retained):
+    from models.privacy import suppress_count, suppress_stat
+    retained = np.asarray(retained, dtype=bool)
+    cells = conditions.astype(str).agg("|".join, axis=1)
+    rows = []
+    for key, indexes in cells.groupby(cells).groups.items():
+        indexes = np.asarray(list(indexes), dtype=int)
+        requested, kept = len(indexes), int(retained[indexes].sum())
+        rows.append({"condition_cell": key, "n_requested": suppress_count(requested),
+                     "n_retained": suppress_count(kept),
+                     "retained_share": suppress_stat(kept/requested, requested)})
+    return {"n_requested": suppress_count(len(conditions)), "n_retained": suppress_count(int(retained.sum())),
+            "retained_share": suppress_stat(float(retained.mean()) if len(retained) else None, len(retained)),
+            "condition_cells": rows}
+
+
 # ── driver ───────────────────────────────────────────────────────────────────
 
 def run(args, cfg):
     from models.privacy import safe_public_output, suppress_count
     thr = float(cfg["outcome"]["threshold_mg_dl"])
-    spec = build_spec(cfg, use_state=False)
+    spec = None
     eval_split = "test" if args.final_test else "val"
     if args.mock:
         from tests.mock_data import make_mock_v2
@@ -295,6 +317,16 @@ def run(args, cfg):
         tr_raw = read_parquet(split_path(d, "train"))
         ev_raw = read_parquet(split_path(d, eval_split, final_test=args.final_test), final_test=args.final_test)
     tr, _ = apply_scope(tr_raw, cfg)
+    if args.cvae_weights and os.path.isfile(args.cvae_weights):
+        from models.sampling import CVAEBundle
+        from models.artifacts import validate_checkpoint
+        checkpoint = CVAEBundle.load(args.cvae_weights)
+        validate_checkpoint(checkpoint.ckpt, cfg)
+        if checkpoint.ckpt['is_mock'] != bool(args.mock):
+            raise ValueError("Evaluation mode does not match checkpoint MOCK provenance")
+        spec = checkpoint.spec
+    else:
+        spec = build_spec(cfg, use_state=False, training_df=tr)
     ev, scope_rep = apply_scope(ev_raw, cfg)
     tr_u = real_units(tr, spec); tr_u = tr_u[complete_rows(tr_u, spec)]
     ev_u = real_units(ev, spec); keep = complete_rows(ev_u, spec)
@@ -322,6 +354,8 @@ def run(args, cfg):
     filled = np.ones(len(ev_u), dtype=bool)
     for g in gens.values():
         filled &= g["glucose_raw"].notna().to_numpy()
+    coverage = {name: coverage_report(cf, np.isfinite(g["glucose_raw"].to_numpy(float))) for name, g in gens.items()}
+    shared_coverage = coverage_report(cf, filled)
     real = ev_u[filled].reset_index(drop=True)
     if len(real) < min_cell(cfg) or len(tr_u) < min_cell(cfg):
         res = {"_meta": {"status": "insufficient coverage", "mock": bool(args.mock),
@@ -336,13 +370,19 @@ def run(args, cfg):
                      "split": eval_split, "n_eval_rows_requested": int(len(ev_u)),
                      "n_eval_rows_all_models_filled": int(filled.sum()),
                      "min_cell_for_conditional_metrics": MIN_CELL_EVAL, "threshold_mg_dl": thr,
-                     "scope": scope_rep["scope"], "seed": args.seed},
+                     "scope": scope_rep["scope"], "seed": args.seed,
+                     "metrics_scope": "retained subset filled by every evaluated model, not full requested scope",
+                     "shared_coverage": shared_coverage,
+                     "comparison_note": "CVAE: full scoped TRAIN with optional state; TVAE/CTGAN: stratified TRAIN subsample without state. Different data/state use, not a controlled architecture-only comparison.",
+                     "utility_note": "TSTR uses held-out matched conditions (transductive utility), not independent cohort TSTR"},
            "real": {"tail": tail_metrics(real, thr)}, "models": {}}
     for name, g in gens.items():
         g = g[filled].reset_index(drop=True)
         print(f"evaluating {name} on {len(g):,} rows ...")
         res["models"][name] = {
             "generation": info[name],
+            "requested_vs_retained_coverage": coverage[name],
+            "metrics_scope": "shared retained subset",
             "marginals": marginal_metrics(real, g),
             "correlation": corr_metrics(real, g, spec, cfg),
             "tail": tail_metrics(g, thr),
@@ -366,7 +406,8 @@ def summary_md(res) -> str:
             f"Created {m['created']}. Rows evaluated: {m['n_eval_rows_all_models_filled']:,} "
             f"(of {m['n_eval_rows_requested']:,} requested; rows a baseline could not fill by rejection "
             "sampling are dropped for all models). Outcome: elevated glucose (proxy), "
-            f"glucose >= {m['threshold_mg_dl']:.0f} mg/dL. Aggregates only.", ""]
+            f"glucose >= {m['threshold_mg_dl']:.0f} mg/dL. Aggregates only.",
+            m["metrics_scope"], m["comparison_note"], m["utility_note"], ""]
     rows = []
     rt = res["real"]["tail"]
     rows.append(["REAL", None, None, rt["share_ge_threshold"] * 100, rt["p95"], rt["p99"], None, None, None, None, None, None])

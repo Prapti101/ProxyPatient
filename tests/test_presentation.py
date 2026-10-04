@@ -302,3 +302,13 @@ def test_all_unfilled_baseline_keeps_schema():
         def sample(self, n): return pd.DataFrame({'sex': ['1']*n, 'glucose_raw': [100.]*n})
     frame, stats = rejection_sample(NoMatch(), pd.DataFrame({'sex': ['0']*100}), ['sex'], 42, batch=100, max_factor=1)
     assert len(frame) == 100 and list(frame) == ['sex', 'glucose_raw'] and frame.isna().all().all()
+
+
+def test_requested_retained_coverage_is_explicit_and_suppressed():
+    import pandas as pd
+    from models.eval_dev import coverage_report
+    cf = pd.DataFrame({'sex': ['0']*100 + ['1']*5})
+    report = coverage_report(cf, np.array([True]*50 + [False]*55))
+    assert report['n_requested'] == 105 and report['n_retained'] == 50
+    rare = next(x for x in report['condition_cells'] if x['condition_cell'] == '1')
+    assert rare['n_requested'] is None and rare['n_retained'] is None and rare['retained_share'] is None
