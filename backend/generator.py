@@ -184,6 +184,9 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         raise ValueError(f"n must be between {N_MIN} and {N_MAX}; got {n}")
     bundle, marg = _load()
     parsed = _parse_condition(condition, bundle)
+    missing = [key for key in bundle.spec.cond_names if key not in parsed]
+    if missing and not (os.environ.get("PP_ALLOW_PARTIAL_PROFILE") == "1" and os.environ.get("PP_DEMO_MOCK") == "1"):
+        raise ValueError("Missing full profile conditions: " + ", ".join(missing))
     spec, cfg = bundle.spec, bundle.cfg
     n = int(n)
     rng = np.random.default_rng(int(seed))
@@ -238,7 +241,8 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
     df.attrs["fingerprint"] = bundle.ckpt["fingerprint"]
     df.attrs["demo"] = bool(bundle.ckpt["is_mock"])
     df.attrs["sampling"] = {**gen.attrs.get("sampling", {}), "filled_from_marginals": filled,
-                            "seed": int(seed), "label": "SYNTHETIC"}
+                            "seed": int(seed), "label": "SYNTHETIC",
+                            "warning": "Independent marginal fill (development only)" if missing else None}
 
     if export_sample:
         os.makedirs(OUTPUTS_DIR, exist_ok=True)

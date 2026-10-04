@@ -61,7 +61,7 @@ app = FastAPI(
         "STRICTLY generative AI. NOT a diagnostic tool. "
         "Source: NFHS-5 India (2019-21)."
     ),
-    version     = "1.0.0",
+    version     = "2.0.0",
     docs_url    = "/docs",
 )
 
@@ -152,49 +152,39 @@ def get_profiles():
     if _aggregates is None:
         raise HTTPException(503, "Aggregates not loaded.")
 
-    profiles = []
+    bundle, _ = _load_or_503()
+    root = os.path.dirname(__import__("backend.generator", fromlist=["_paths"])._paths()[0])
+    path = os.path.join(root, "supported_profiles.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            assets = json.load(f)
+        if assets.get("fingerprint") != bundle.ckpt["fingerprint"]:
+            raise ValueError("Supported profiles fingerprint mismatch")
+        if len(assets["profiles"]) < 3:
+            raise ValueError("Fewer than three supported TRAIN profiles; each requires 500 encoded rows")
+        return ProfilesResponse(profiles=[ProfileEntry(**p) for p in assets["profiles"]])
+    except (OSError, ValueError, KeyError) as exc:
+        raise HTTPException(503, str(exc)) from exc
 
-    # Overall baseline
-    overall = _aggregates.get("overall", {})
-    if not overall.get("suppressed"):
-        profiles.append(ProfileEntry(
-            label       = "Overall Population",
-            condition   = {},
-            description = (
-                f"All NFHS-5 respondents with glucose readings. "
-                f"n={overall.get('n', 'N/A'):,}. "
-                f"Elevated glucose (proxy) rate: "
-                f"{round(overall.get('rate', 0) * 100, 2)}%"
-            )
-        ))
 
-    # By sex
-    for sex_key, sex_label in [("female", "Women"), ("male", "Men")]:
-        entry = _aggregates.get("by_sex", {}).get(sex_key, {})
-        if not entry.get("suppressed") and entry.get("rate") is not None:
-            profiles.append(ProfileEntry(
-                label       = f"{sex_label} (All Ages)",
-                condition   = {"sex": sex_key},
-                description = (
-                    f"n={entry.get('n', 0):,}. "
-                    f"Rate: {round(entry.get('rate', 0) * 100, 2)}%"
-                )
-            ))
+def _load_or_503():
+    try:
+        return _load()
+    except ModelUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
 
-    # By residence
-    for res in ["urban", "rural"]:
-        entry = _aggregates.get("by_residence", {}).get(res, {})
-        if not entry.get("suppressed") and entry.get("rate") is not None:
-            profiles.append(ProfileEntry(
-                label       = f"{res.capitalize()} Residents",
-                condition   = {"residence": res},
-                description = (
-                    f"n={entry.get('n', 0):,}. "
-                    f"Rate: {round(entry.get('rate', 0) * 100, 2)}%"
-                )
-            ))
 
-    return ProfilesResponse(profiles=profiles)
+def _response_fields(condition, df, stat):
+    from models.common import age_band_label, parse_age_band, load_config
+    effective = condition.model_dump(exclude_none=True)
+    if "sex" in effective and "age_band" in effective:
+        effective["age_band"] = age_band_label(load_config(), effective["sex"], parse_age_band(load_config(), effective["age_band"]))
+    diagnostics = df.attrs["sampling"]
+    return dict(condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
+                model_fingerprint=df.attrs["fingerprint"], demo=df.attrs["demo"],
+                banner="MOCK DEMO — not NFHS-5" if df.attrs["demo"] else None,
+                sampling_diagnostics={**diagnostics, "rejection_rate": diagnostics["first_pass_inconsistent_share"],
+                                      "clipped_share": 1-diagnostics["consistent_without_clipping_share"]})
 
 
 @app.post("/generate", response_model=GenerateResponse, tags=["Scenarios"])
@@ -208,7 +198,7 @@ def generate_cohort(req: GenerateRequest):
       - Rate is computed from generated data, never hardcoded.
       - Disclaimer always included.
     """
-    condition_dict = req.condition.dict(exclude_none=True)
+    condition_dict = req.condition.model_dump(exclude_none=True)
 
     # Extra safety: block glucose conditioning even if schema validation missed it
     for key in condition_dict:
@@ -236,12 +226,7 @@ def generate_cohort(req: GenerateRequest):
         logger.error(f"Outcome stat error: {e}")
         raise HTTPException(500, f"Outcome computation failed: {str(e)}")
 
-    return GenerateResponse(
-        condition    = req.condition,
-        outcome_stat = OutcomeStat(**stat),
-        model_used   = MODEL_USED,
-        model_fingerprint=df.attrs["fingerprint"]
-    )
+    return GenerateResponse(**_response_fields(req.condition, df, stat))
 
 
 @app.post("/compare", response_model=CompareResponse, tags=["Scenarios"])
@@ -254,7 +239,7 @@ def compare_scenarios(req: CompareRequest):
     baseline_rate = None
 
     for scenario in req.scenarios:
-        condition_dict = scenario.condition.dict(exclude_none=True)
+        condition_dict = scenario.condition.model_dump(exclude_none=True)
 
         for key in condition_dict:
             if key in FORBIDDEN_INPUT_CONDITIONS:
@@ -278,12 +263,8 @@ def compare_scenarios(req: CompareRequest):
         delta_pp = round((stat["rate"] - baseline_rate) * 100, 4) \
                    if baseline_rate is not None else None
 
-        results.append(ScenarioResult(
-            label        = scenario.label,
-            condition    = scenario.condition,
-            outcome_stat = OutcomeStat(**stat),
-            delta_pp     = delta_pp
-        ))
+        results.append(ScenarioResult(label=scenario.label, delta_pp=delta_pp,
+                                      **_response_fields(scenario.condition, df, stat)))
 
     return CompareResponse(scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 

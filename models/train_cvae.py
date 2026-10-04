@@ -26,7 +26,7 @@ from models.common import (MOCK_BANNER, MODELS_DIR, data_dir, load_config, read_
                            split_path, write_json)
 from models.cvae import build_model
 from models.data import (DROP_COLUMNS, apply_scope, build_spec, condition_marginals,
-                         default_paths, fit_preproc, make_arrays, raw_generated, require_sex_support)
+                         default_paths, fit_preproc, make_arrays, raw_generated, require_sex_support, supported_profiles)
 
 
 def set_seed(seed: int):
@@ -40,7 +40,15 @@ def load_frames(args, cfg):
     if args.mock:
         from tests.mock_data import make_mock_v2
         n = args.max_rows or 6000
-        return make_mock_v2(n, seed=1), make_mock_v2(max(n // 4, 500), seed=2, banner=False)
+        train = make_mock_v2(n, seed=1)
+        if args.demo_profiles:
+            # Construct MOCK joint cells, never copy survey rows or save samples.
+            for group, (sex, bmi, band) in enumerate([(0, 17., "underweight"), (0, 22., "normal"), (1, 32., "obese")]):
+                mask = np.arange(n) % 3 == group
+                train.loc[mask, ["sex", "age", "age_band", "residence", "wealth_quintile", "bmi", "bmi_band",
+                                 "bmi_measured", "hypertension", "any_tobacco", "alcohol"]] = [sex, 30, "25-34", "rural", 3, bmi, band, 1, 0, 0, 0]
+                train.loc[mask, "weight_kg"] = bmi * (train.loc[mask, "height_cm"] / 100)**2
+        return train, make_mock_v2(max(n // 4, 500), seed=2, banner=False)
     d = data_dir(args.data_dir)
     tr = read_parquet(split_path(d, "train"))
     va = read_parquet(split_path(d, "val"))
@@ -159,6 +167,9 @@ def train(args, cfg):
     marginals = condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg)
     marginals["_meta"]["fingerprint"] = ckpt["fingerprint"]
     write_json(marginals, paths["marginals"])
+    profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec)
+    profiles["fingerprint"] = ckpt["fingerprint"]
+    write_json(profiles, os.path.join(args.out_dir, "supported_profiles.json"))
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
     print(f"saved weights -> {weights} (git-ignored; do not commit)")
@@ -215,6 +226,7 @@ def parse_args(argv=None):
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
+    p.add_argument("--demo-profiles", action="store_true", help="construct supported MOCK demo profile cells")
     p.add_argument("--config")
     return p.parse_args(argv)
 

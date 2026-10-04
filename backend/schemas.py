@@ -1,170 +1,203 @@
-"""
-ProxyPatient — Backend Pydantic Schemas
-Request and response models for all FastAPI endpoints.
-"""
+"""Strict version 2 request/response contracts; options come from configuration."""
+import os
+import re
+from typing import Any, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from models.common import load_config, parse_age_band
 
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
-
-
-DISCLAIMER = (
-    "This tool generates SYNTHETIC patient scenarios for health-awareness "
-    "and research purposes only. Results are based on population-level "
-    "statistical patterns, not individual predictions. This is NOT a medical "
-    "diagnosis, clinical assessment, or treatment recommendation. "
-    "'Elevated glucose (proxy)' refers to a random capillary glucose reading "
-    ">= 200 mg/dL and cannot distinguish Type 1 from Type 2 diabetes. "
-    "Always consult a qualified healthcare professional."
-)
-
-# Valid values for each conditioning variable (from schema.json / config.yaml)
-VALID_SEX         = ["female", "male"]
-VALID_AGE_BAND    = ["15-24", "25-34", "35-49", "35-54"]
-VALID_RESIDENCE   = ["urban", "rural"]
-VALID_WEALTH      = ["1", "2", "3", "4", "5"]   # 1=poorest, 5=richest
-VALID_BMI_BAND    = ["underweight", "normal", "overweight", "obese"]
-VALID_TOBACCO     = ["0", "1"]    # 0=no, 1=yes
-VALID_ALCOHOL     = ["0", "1"]    # 0=no, 1=yes
-VALID_HYPERTENSION = ["0", "1"]   # 0=not hypertensive, 1=hypertensive or on BP medication
-def supported_state_codes():
-    from backend.generator import _load
-    return _load()[0].spec.state_codes
+DISCLAIMER = ('SYNTHETIC scenario exploration for elevated glucose (proxy). '
+              'Not a medical diagnosis, individual prediction, treatment recommendation, '
+              'or causal effect. Consult a qualified healthcare professional.')
+UNCERTAINTY_NOTE = ('Monte Carlo variation of the synthetic cohort conditional on the fitted model; '
+                    'does not measure model or survey uncertainty.')
+SCOPE = 'Measured BMI, known blood-pressure status and finite glucose; both sexes; complete encoded TRAIN rows.'
+FULL_KEYS = ('sex', 'age_band', 'residence', 'wealth_quintile', 'bmi_band', 'hypertension', 'tobacco', 'alcohol')
 
 
-# Glucose is NEVER a valid conditioning variable
-FORBIDDEN_CONDITIONS = ["glucose", "glucose_raw", "elevated_glucose_proxy",
-                         "sb74", "smb74", "hba1c"]
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
 
 
-class Condition(BaseModel):
-    """What-if conditions for scenario generation."""
-    sex:            Optional[str] = Field(None, description="female or male")
-    age_band:       Optional[str] = Field(None, description="e.g. 25-34")
-    residence:      Optional[str] = Field(None, description="urban or rural")
-    wealth_quintile:Optional[str] = Field(None, description="1-5 (1=poorest)")
-    bmi_band:       Optional[str] = Field(None, description="underweight/normal/overweight/obese")
-    tobacco:        Optional[str] = Field(None, description="0=no, 1=yes")
-    alcohol:        Optional[str] = Field(None, description="0=no, 1=yes")
-    hypertension:   Optional[str] = Field(None, description="0=not hypertensive, 1=hypertensive or on BP medication")
-    state:          Optional[str] = Field(None, description="Supported raw state code exposed by /options")
+class Condition(StrictModel):
+    sex: Optional[int] = None
+    age_band: Optional[str] = None
+    residence: Optional[str] = None
+    wealth_quintile: Optional[int] = None
+    bmi_band: Optional[str] = None
+    hypertension: Optional[int] = None
+    tobacco: Optional[int] = None
+    alcohol: Optional[int] = None
+    state: Optional[int] = None
 
-    @validator("sex")
-    def validate_sex(cls, v):
-        if v is not None and v not in VALID_SEX:
-            raise ValueError(f"sex must be one of {VALID_SEX}")
-        return v
+    @model_validator(mode='before')
+    @classmethod
+    def reject_outcome(cls, value):
+        if isinstance(value, dict):
+            for key in value:
+                if any(t in key.lower() for t in ('glucose', 'hba1c', 'sb74', 'smb74')):
+                    raise ValueError('glucose is the outcome, not an input')
+        return value
 
-    @validator("residence")
-    def validate_residence(cls, v):
-        if v is not None and v not in VALID_RESIDENCE:
-            raise ValueError(f"residence must be one of {VALID_RESIDENCE}")
-        return v
+    @field_validator('sex', mode='before')
+    @classmethod
+    def sex_value(cls, value):
+        return {'female': 0, 'male': 1}.get(str(value).lower(), value)
 
-    @validator("wealth_quintile")
-    def validate_wealth(cls, v):
-        if v is not None and str(v) not in VALID_WEALTH:
-            raise ValueError(f"wealth_quintile must be one of {VALID_WEALTH}")
-        return v
+    @field_validator('sex', 'hypertension', 'tobacco', 'alcohol', 'wealth_quintile', 'state', mode='before')
+    @classmethod
+    def integer_value(cls, value, info):
+        if value is None:
+            return value
+        if info.field_name == 'sex':
+            value = {'female': 0, 'male': 1}.get(str(value).lower(), value)
+        if isinstance(value, bool) or not re.fullmatch(r'-?\d+', str(value).strip()):
+            raise ValueError('must be an integer code')
+        return int(value)
 
-    @validator("bmi_band")
-    def validate_bmi(cls, v):
-        if v is not None and v not in VALID_BMI_BAND:
-            raise ValueError(f"bmi_band must be one of {VALID_BMI_BAND}")
-        return v
+    @field_validator('sex', 'hypertension', 'tobacco', 'alcohol')
+    @classmethod
+    def binary(cls, value):
+        if value is not None and value not in (0, 1):
+            raise ValueError('must be 0 or 1')
+        return value
 
-    @validator("hypertension")
-    def validate_hypertension(cls, v):
-        if v is not None and str(v) not in VALID_HYPERTENSION:
-            raise ValueError(f"hypertension must be one of {VALID_HYPERTENSION}")
-        return v
+    @field_validator('age_band')
+    @classmethod
+    def age(cls, value):
+        if value is not None:
+            cfg = load_config()
+            options = cfg['whatif_options']['age_band']
+            if value not in options['women_options'] + options['men_options']:
+                raise ValueError('age_band must be a configured sex-specific label')
+        return value
 
-    @validator("state")
-    def validate_state(cls, v):
-        if v is not None and int(v) not in supported_state_codes():
-            raise ValueError(f"state must be a supported raw state code, got '{v}'")
-        return v
+    @field_validator('residence', 'bmi_band')
+    @classmethod
+    def labels(cls, value, info):
+        cfg = load_config()
+        options = cfg['whatif_options']['residence']['options'] if info.field_name == 'residence' else cfg['bmi']['bands']
+        if value is not None and value not in options:
+            raise ValueError(f'{info.field_name} must be one of {list(options)}')
+        return value
+
+    @field_validator('wealth_quintile')
+    @classmethod
+    def wealth(cls, value):
+        if value is not None and value not in (1, 2, 3, 4, 5):
+            raise ValueError('wealth_quintile must be 1-5')
+        return value
+
+    @field_validator('state')
+    @classmethod
+    def state_supported(cls, value):
+        if value is not None:
+            from backend.generator import _load, ModelUnavailable
+            try:
+                codes = _load()[0].spec.state_codes
+            except ModelUnavailable as exc:
+                raise ValueError('state options unavailable until compatible artifacts are loaded') from exc
+            if value not in codes:
+                raise ValueError(f'state must be one of {codes}')
+        return value
 
 
-class GenerateRequest(BaseModel):
-    condition: Condition = Field(..., description="What-if conditioning variables")
-    n:         int       = Field(1000, ge=100, le=10000,
-                                  description="Cohort size (100-10000)")
-    seed:      int       = Field(42, description="Random seed for reproducibility")
-
-
-class OutcomeStat(BaseModel):
-    rate:     float = Field(..., description="Proportion with elevated glucose (proxy)")
-    ci_low:   float = Field(..., description="Bootstrap 95% CI lower bound")
-    ci_high:  float = Field(..., description="Bootstrap 95% CI upper bound")
-    n:        int   = Field(..., description="Number of generated rows with glucose reading")
-    rate_pct: float = Field(..., description="rate as percentage (rate * 100)")
-
-
-class GenerateResponse(BaseModel):
-    model_fingerprint: str
-    condition:    Condition
-    outcome_stat: OutcomeStat
-    disclaimer:   str = DISCLAIMER
-    model_used:   str = Field("CVAE", description="Which generative model produced this")
-    note:         str = ("What-if means 'how the synthetic cohort shifts when the "
-                         "population profile changes', NOT a causal intervention.")
-
-
-class CompareScenario(BaseModel):
-    label:     str       = Field(..., description="Human-readable scenario name")
+class GenerateRequest(StrictModel):
     condition: Condition
-    n:         int       = Field(1000, ge=100, le=10000)
-    seed:      int       = Field(42)
+    n: int = Field(default_factory=lambda: int(load_config()['outcome_stat']['default_cohort_size']), ge=100, le=10000, strict=True)
+    seed: int = Field(default_factory=lambda: int(load_config()['model']['seed']), strict=True)
+
+    @model_validator(mode='after')
+    def full_profile(self):
+        missing = [k for k in FULL_KEYS if getattr(self.condition, k) is None]
+        if missing and os.environ.get('PP_ALLOW_PARTIAL_PROFILE') != '1':
+            raise ValueError('Missing full profile conditions: ' + ', '.join(missing))
+        if missing and os.environ.get('PP_DEMO_MOCK') != '1':
+            raise ValueError('Independent marginal fill is an explicit demo/development option only')
+        return self
 
 
-class CompareRequest(BaseModel):
-    scenarios: List[CompareScenario] = Field(..., min_items=2, max_items=5)
+class OutcomeStat(StrictModel):
+    rate: float
+    ci_low: float
+    ci_high: float
+    n: int
+    rate_pct: float
+    dropped_nonfinite: Optional[int] = None
+    monte_carlo_interval: Optional[dict[str, Any]] = None
 
 
-class ScenarioResult(BaseModel):
-    label:        str
-    condition:    Condition
+class GenerateResponse(StrictModel):
+    condition: Condition
+    effective_conditions: dict[str, Any]
     outcome_stat: OutcomeStat
-    delta_pp:     Optional[float] = Field(
-        None, description="Difference in percentage points vs first scenario (baseline)"
-    )
-
-
-class CompareResponse(BaseModel):
     model_fingerprint: str
-    scenarios:  List[ScenarioResult]
+    sampling_diagnostics: dict[str, Any]
+    synthetic: bool = True
+    demo: bool = False
+    banner: Optional[str] = None
+    model_used: str = 'CVAE'
+    scope: str = SCOPE
+    weighting: str = 'unweighted sample'
+    uncertainty_note: str = UNCERTAINTY_NOTE
     disclaimer: str = DISCLAIMER
-    note:       str = ("Differences are descriptive shifts in synthetic cohorts, "
-                       "not causal effects.")
+    note: str = 'Descriptive synthetic scenario comparison; what-if is not causal.'
 
 
-class HealthResponse(BaseModel):
-    mode: str = "unavailable"
+class CompareScenario(GenerateRequest):
+    label: str = Field(min_length=1, max_length=200)
+
+
+class CompareRequest(StrictModel):
+    scenarios: list[CompareScenario] = Field(min_length=2, max_length=5)
+
+
+class ScenarioResult(GenerateResponse):
+    label: str
+    delta_pp: float
+
+
+class CompareResponse(StrictModel):
+    scenarios: list[ScenarioResult]
+    model_fingerprint: str
+    disclaimer: str = DISCLAIMER
+    weighting: str = 'unweighted sample'
+    uncertainty_note: str = UNCERTAINTY_NOTE
+    note: str = 'Differences describe synthetic scenarios, not causal effects.'
+
+
+class HealthResponse(StrictModel):
+    status: str = 'ok'
+    mode: str = 'unavailable'
     model_fingerprint: Optional[str] = None
     detail: Optional[str] = None
-    status:  str = "ok"
-    version: str = "2.0.0"
-    model:   str = "CVAE"
+    version: str = '2.0.0'
+    model: str = 'CVAE'
     disclaimer_present: bool = True
 
 
-class ProfileEntry(BaseModel):
-    label:       str
-    condition:   Dict[str, Any]
+class ProfileEntry(StrictModel):
+    label: str
+    condition: dict[str, Any]
     description: str
+    n_train: int
 
 
-class ProfilesResponse(BaseModel):
-    profiles:   List[ProfileEntry]
-    source:     str = "NFHS-5 India (2019-21)"
+class ProfilesResponse(StrictModel):
+    profiles: list[ProfileEntry]
+    source: str = 'Encoded TRAIN model scope; unweighted sample'
+    reference_scope: str = 'Historical reference aggregates use all known-glucose respondents; not the model scope.'
     disclaimer: str = DISCLAIMER
 
 
-class ParseRequest(BaseModel):
-    text: str = Field(..., description="Natural language condition e.g. 'rural women aged 25-34'")
+class ParseRequest(StrictModel):
+    text: str = Field(min_length=1, max_length=2000)
+    baseline: Optional[Condition] = None
 
 
-class ParseResponse(BaseModel):
+class ParseResponse(StrictModel):
     parsed_condition: Condition
-    raw_text:         str
-    confidence:       float
+    raw_text: str
+    confidence: Optional[float] = None
+    parser: str = 'rule-based demo parser'
+    requires_confirmation: bool = True
+    unresolved: list[str] = Field(default_factory=list)

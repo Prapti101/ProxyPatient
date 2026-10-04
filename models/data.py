@@ -286,3 +286,24 @@ def require_sex_support(arr, cfg, mock=False):
     if any(arr.support.get(str(sex), 0) < minimum for sex in (0, 1)):
         raise ValueError(f"Insufficient complete rows per sex after encoding: require at least {minimum} for both sexes")
     return arr.support
+
+
+def supported_profiles(df, spec, minimum=500):
+    """Only observed FULL joint profiles from encoded TRAIN; no reconstructed individuals."""
+    cf = condition_frame(df, spec)
+    grouped = cf.groupby(spec.cond_names, dropna=True, observed=True).size().sort_values(ascending=False)
+    profiles = []
+    for labels, count in grouped.items():
+        if count < max(500, minimum):
+            continue
+        profile = dict(zip(spec.cond_names, labels))
+        for key in ("sex", "wealth_quintile", "hypertension", "tobacco", "alcohol"):
+            profile[key] = int(profile[key])
+        from models.common import load_config, age_band_label
+        profile["age_band"] = age_band_label(load_config(), profile["sex"], AGE3_LABELS.index(profile["age_band"]))
+        profiles.append({"label": f"Supported TRAIN profile {len(profiles)+1}", "condition": profile,
+                         "n_train": int(count), "description": "Observed joint TRAIN cell; model scope, unweighted sample"})
+        if len(profiles) == 3:
+            break
+    return {"profiles": profiles, "status": "supported" if len(profiles) >= 3 else "insufficient supported joint profiles",
+            "minimum_training_cell": max(500, minimum)}

@@ -52,7 +52,7 @@ def test_real_mode_rejects_mock_and_demo_is_visible(real_generator_env, monkeypa
         assert client.get('/schema').json()['demo'] is True
         monkeypatch.delenv('PP_DEMO_MOCK')
         assert client.get('/health').json()['mode'] == 'unavailable'
-        response = client.post('/generate', json={'condition': {}, 'n': 100})
+        response = client.post('/generate', json={'condition': FULL, 'n': 100})
         assert response.status_code == 503 and 'MOCK' in response.text
 
 
@@ -76,3 +76,51 @@ def test_checkpoint_config_mismatch_is_rejected(real_generator_env, monkeypatch)
     monkeypatch.setattr('models.common.load_config', lambda: cfg)
     with pytest.raises(generator.ModelUnavailable, match='fingerprint'):
         generator._load()
+
+FULL = dict(sex=0, age_band='25-34', residence='urban', wealth_quintile=3,
+            bmi_band='normal', hypertension=0, tobacco=0, alcohol=0)
+
+
+@pytest.mark.parametrize('extra', [{'glucose_raw': 200}, {'log_glucose': 5}, {'hba1c': 6}, {'colour': 'red'},
+                                  {'age_band': 'nonsense'}, {'tobacco': 2}, {'alcohol': 2}, {'wealth_quintile': 1.5}, {'state': 26}])
+def test_strict_http_conditions(real_generator_env, extra):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    with TestClient(app) as c:
+        r = c.post('/generate', json={'condition': {**FULL, **extra}, 'n': 100})
+        assert r.status_code == 422, r.text
+        if any('glucose' in k or k == 'hba1c' for k in extra):
+            assert 'glucose is the outcome, not an input' in r.text
+
+
+def test_full_profile_and_response_provenance(real_generator_env, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    monkeypatch.delenv('PP_ALLOW_PARTIAL_PROFILE')
+    with TestClient(app) as c:
+        assert c.post('/generate', json={'condition': {'sex': 0}}).status_code == 422
+        r = c.post('/generate', json={'condition': {**FULL, 'sex': 'male', 'age_band': '35-49'}, 'n': 100})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d['effective_conditions']['sex'] == 1 and d['effective_conditions']['age_band'] == '35-54'
+        assert d['synthetic'] and d['demo'] and d['model_fingerprint']
+        assert d['weighting'] == 'unweighted sample' and 'survey uncertainty' in d['uncertainty_note']
+        assert 'clipped_share' in d['sampling_diagnostics']
+        assert 37 in c.get('/options').json()['state']
+
+
+def test_demo_builder_supports_three_full_profiles(tmp_path, monkeypatch):
+    from models.make_demo_checkpoint import main
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    main(['--out-dir', str(tmp_path)])
+    monkeypatch.setenv('PP_MODEL_DIR', str(tmp_path))
+    monkeypatch.setenv('PP_DEMO_MOCK', '1')
+    monkeypatch.delenv('PP_CVAE_WEIGHTS', raising=False)
+    monkeypatch.delenv('PP_CONDITION_MARGINALS', raising=False)
+    with TestClient(app) as c:
+        r = c.get('/profiles')
+        assert r.status_code == 200, r.text
+        for p in r.json()['profiles']:
+            assert p['n_train'] >= 500 and set(FULL) == set(p['condition'])
+            assert c.post('/generate', json={'condition': p['condition'], 'n': 100}).status_code == 200
