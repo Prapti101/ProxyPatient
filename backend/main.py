@@ -81,18 +81,30 @@ _schema     = None
 _aggregates = None
 _validation = None
 
-RULE = {"threshold_mg_dl": 200}   # from config.yaml — never hardcode elsewhere
+# Load glucose threshold from config.yaml (never hardcode)
+def _load_config():
+    config_path = os.path.join(os.path.dirname(DOCS_DIR), "config.yaml")
+    try:
+        import yaml
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return cfg
+    except Exception:
+        return {}
+
+_cfg  = _load_config()
+RULE  = {"threshold_mg_dl": _cfg.get("outcome", {}).get("threshold_mg_dl", 200)}
 
 
 @app.on_event("startup")
 def load_assets():
     global _schema, _aggregates, _validation
     try:
-        with open(os.path.join(DOCS_DIR, "schema.json"),     encoding="utf-8") as f:
+        with open(os.path.join(DOCS_DIR, "schema.json"),        encoding="utf-8") as f:
             _schema = json.load(f)
-        with open(os.path.join(DOCS_DIR, "aggregates.json"), encoding="utf-8") as f:
+        with open(os.path.join(DOCS_DIR, "aggregates_v2.json"), encoding="utf-8") as f:
             _aggregates = json.load(f)
-        logger.info("Schema and aggregates loaded successfully.")
+        logger.info("Schema and aggregates_v2 loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load assets: {e}")
 

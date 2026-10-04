@@ -25,6 +25,8 @@ VALID_WEALTH      = ["1", "2", "3", "4", "5"]   # 1=poorest, 5=richest
 VALID_BMI_BAND    = ["underweight", "normal", "overweight", "obese"]
 VALID_TOBACCO     = ["0", "1"]    # 0=no, 1=yes
 VALID_ALCOHOL     = ["0", "1"]    # 0=no, 1=yes
+VALID_HYPERTENSION = ["0", "1"]   # 0=not hypertensive, 1=hypertensive or on BP medication
+VALID_STATE       = [str(i) for i in range(1, 37)]  # DHS state codes 1-36 (India states/UTs)
 
 # Glucose is NEVER a valid conditioning variable
 FORBIDDEN_CONDITIONS = ["glucose", "glucose_raw", "elevated_glucose_proxy",
@@ -40,6 +42,8 @@ class Condition(BaseModel):
     bmi_band:       Optional[str] = Field(None, description="underweight/normal/overweight/obese")
     tobacco:        Optional[str] = Field(None, description="0=no, 1=yes")
     alcohol:        Optional[str] = Field(None, description="0=no, 1=yes")
+    hypertension:   Optional[str] = Field(None, description="0=not hypertensive, 1=hypertensive or on BP medication")
+    state:          Optional[str] = Field(None, description="DHS state code 1-36 (Indian states/UTs)")
 
     @validator("sex")
     def validate_sex(cls, v):
@@ -63,6 +67,18 @@ class Condition(BaseModel):
     def validate_bmi(cls, v):
         if v is not None and v not in VALID_BMI_BAND:
             raise ValueError(f"bmi_band must be one of {VALID_BMI_BAND}")
+        return v
+
+    @validator("hypertension")
+    def validate_hypertension(cls, v):
+        if v is not None and str(v) not in VALID_HYPERTENSION:
+            raise ValueError(f"hypertension must be one of {VALID_HYPERTENSION}")
+        return v
+
+    @validator("state")
+    def validate_state(cls, v):
+        if v is not None and str(v) not in VALID_STATE:
+            raise ValueError(f"state must be a DHS state code 1-36, got '{v}'")
         return v
 
 
@@ -119,7 +135,7 @@ class CompareResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status:  str = "ok"
-    version: str = "1.0.0"
+    version: str = "2.0.0"
     model:   str = "CVAE"
     disclaimer_present: bool = True
 
