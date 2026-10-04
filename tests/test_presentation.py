@@ -340,3 +340,29 @@ def test_sampling_batches_respect_bounds_and_report_clipping(mock_model_dir):
     assert len(result) == 100 and np.isfinite(result['glucose_raw']).all()
     assert result['age'].between(15, 24).all()
     assert 0 <= result.attrs['sampling']['clipped_share'] <= 1
+
+
+def test_config_precedence_and_condition_order(tmp_path):
+    import json
+    import yaml
+    import torch
+    from models.train_cvae import main
+    cfg = load_config()
+    cfg['model'].update(state_embedding=False, glucose_head='gaussian', seed=17, max_epochs=1)
+    cfg['conditioning_variables'] = list(reversed(cfg['conditioning_variables']))
+    config = tmp_path/'config.yaml'
+    config.write_text(yaml.safe_dump(cfg))
+    weights, log = main(['--mock', '--cpu', '--max-rows', '1500', '--config', str(config), '--out-dir', str(tmp_path/'configured')])
+    checkpoint = torch.load(weights, weights_only=False)
+    assert not checkpoint['preproc']['spec']['use_state']
+    assert checkpoint['preproc']['spec']['cond_names'] == cfg['conditioning_variables']
+    assert checkpoint['hparams']['glucose_components'] == 1 and len(log['epochs']) == 1
+    card = json.loads((tmp_path/'configured/model_card.json').read_text())
+    assert card['training']['seed'] == 17
+    weights, log = main(['--mock', '--cpu', '--max-rows', '1500', '--config', str(config), '--out-dir', str(tmp_path/'overridden'),
+                         '--epochs', '2', '--seed', '42', '--glucose-head', 'mixture'])
+    checkpoint = torch.load(weights, weights_only=False)
+    assert checkpoint['hparams']['glucose_components'] == 3 and len(log['epochs']) == 2
+    cfg['conditioning_variables'].append('glucose_raw')
+    with pytest.raises(ValueError, match='conditioning_variables'):
+        build_spec(cfg)

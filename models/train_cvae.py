@@ -83,6 +83,14 @@ def evaluate(model, arr, bs, device, use_state):
 
 
 def train(args, cfg):
+    args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
+    args.variant = cfg.get("model", {}).get("variant", "mlp") if args.variant is None else args.variant
+    args.glucose_head = cfg.get("model", {}).get("glucose_head", "mixture") if args.glucose_head is None else args.glucose_head
+    for value in (args.epochs, args.patience, args.batch_size, args.max_rows, args.latent_dim):
+        if value is not None and value <= 0:
+            raise ValueError("Explicit training sizes/epochs must be positive")
+    if args.demo_profiles and not args.mock:
+        raise ValueError("--demo-profiles is MOCK-only")
     set_seed(args.seed)
     mcfg = dict(cfg.get("model", {}))
     for k in ("latent_dim",):
@@ -98,7 +106,7 @@ def train(args, cfg):
         tr_raw = tr_raw.sample(args.max_rows, random_state=args.seed)
     tr, scope_tr = apply_scope(tr_raw, cfg, args.scope)
     va, scope_va = apply_scope(va_raw, cfg, args.scope)
-    spec = build_spec(cfg, use_state=not args.no_state, generate_bp=args.generate_bp, training_df=tr)
+    spec = build_spec(cfg, use_state=False if args.no_state else None, generate_bp=args.generate_bp, training_df=tr)
     pre = fit_preproc(raw_generated(tr, spec), spec)
     a_tr, a_va = make_arrays(tr, pre), make_arrays(va, pre)
     require_sex_support(a_tr, cfg, mock=args.mock)
@@ -171,7 +179,7 @@ def train(args, cfg):
     marginals = condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg)
     marginals["_meta"]["fingerprint"] = ckpt["fingerprint"]
     write_json(marginals, paths["marginals"])
-    profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec)
+    profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec, cfg=cfg)
     profiles["fingerprint"] = ckpt["fingerprint"]
     write_json(profiles, os.path.join(args.out_dir, "supported_profiles.json"))
     log = safe_public_output(log)
@@ -224,11 +232,11 @@ def parse_args(argv=None):
     p.add_argument("--latent-dim", dest="latent_dim", type=int)
     p.add_argument("--max-rows", type=int, help="subsample train rows (debugging)")
     p.add_argument("--scope", choices=["complete_conditions", "glucose_known"])
-    p.add_argument("--variant", choices=["mlp", "gru", "cnn"], default="mlp")
-    p.add_argument("--glucose-head", choices=["mixture", "gaussian"], default="mixture")
-    p.add_argument("--no-state", action="store_true", help="disable the state embedding")
+    p.add_argument("--variant", choices=["mlp", "gru", "cnn"], default=None)
+    p.add_argument("--glucose-head", choices=["mixture", "gaussian"], default=None)
+    p.add_argument("--no-state", action="store_true", default=None, help="disable the state embedding")
     p.add_argument("--generate-bp", action="store_true", default=None)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     p.add_argument("--demo-profiles", action="store_true", help="construct supported MOCK demo profile cells")

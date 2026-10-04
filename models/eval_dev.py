@@ -441,13 +441,15 @@ def main(argv=None):
     p.add_argument("--baselines-dir", default=os.path.join(OUTPUTS_DIR, "baselines"))
     p.add_argument("--n-eval", type=int, default=50_000, help="eval rows (subsample of the split)")
     p.add_argument("--out-json", default=None)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--min-eval-cell", type=int, default=500,
                    help="min real rows per cell for conditional metrics (default 500)")
     p.add_argument("--final-test", action="store_true",
                    help="evaluate on the LOCKED test split. Run once, at the very end.")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     args = p.parse_args(argv)
+    cfg = load_config()
+    args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
     if args.out_json is None:
         args.out_json = os.path.join(DOCS_DIR, "model_comparison_final_test.json" if args.final_test
                                      else "model_comparison_dev.json")

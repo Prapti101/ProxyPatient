@@ -101,10 +101,11 @@ def main(argv=None):
     p.add_argument("--weights", help="dae_weights_v2.pt (default <data-dir>/dae_weights_v2.pt)")
     p.add_argument("--fit-stats", help="dae_fit_stats_v2.pkl (default <data-dir>/dae_fit_stats_v2.pkl)")
     p.add_argument("--mask-frac", type=float, default=0.10)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--out", default=os.path.join(DOCS_DIR, "p2_dae_benchmark.json"))
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run with a toy imputer (tests only)")
     args = p.parse_args(argv)
+    args.seed = load_config().get("model", {}).get("seed", 42) if args.seed is None else args.seed
     if args.mock:
         from tests.mock_data import make_mock_v2
         print(f"*** {MOCK_BANNER} *** (toy linear imputer stands in for the DAE)")

@@ -62,8 +62,14 @@ def build_spec(cfg: dict, use_state: Optional[bool] = None,
         "tobacco": ["0", "1"],
         "alcohol": ["0", "1"],
     }
+    names = cfg.get("conditioning_variables", list(levels))
+    if len(names) != len(set(names)) or set(names) != set(levels):
+        raise ValueError("conditioning_variables must contain each of the eight supported non-outcome conditions exactly once")
+    levels = {name: levels[name] for name in names}
     cont = list(m.get("generated_continuous",
                       ["age", "bmi", "height_cm", "waist_cm", "hip_cm", "log_glucose"]))
+    if not {"age", "bmi", "log_glucose"} <= set(cont):
+        raise ValueError("Generated age, BMI and log_glucose are required")
     if generate_bp:
         cont += [c for c in ["systolic_avg", "diastolic_avg"] if c not in cont]
     cat = list(m.get("generated_categorical", ["education", "bp_ever_checked"]))
@@ -305,7 +311,7 @@ def require_sex_support(arr, cfg, mock=False):
     return arr.support
 
 
-def supported_profiles(df, spec, minimum=500):
+def supported_profiles(df, spec, minimum=500, cfg=None):
     """Only observed FULL joint profiles from encoded TRAIN; no reconstructed individuals."""
     cf = condition_frame(df, spec)
     grouped = cf.groupby(spec.cond_names, dropna=True, observed=True).size().sort_values(ascending=False)
@@ -317,7 +323,7 @@ def supported_profiles(df, spec, minimum=500):
         for key in ("sex", "wealth_quintile", "hypertension", "tobacco", "alcohol"):
             profile[key] = int(profile[key])
         from models.common import load_config, age_band_label
-        profile["age_band"] = age_band_label(load_config(), profile["sex"], AGE3_LABELS.index(profile["age_band"]))
+        profile["age_band"] = age_band_label(cfg or load_config(), profile["sex"], AGE3_LABELS.index(profile["age_band"]))
         profiles.append({"label": f"Supported TRAIN profile {len(profiles)+1}", "condition": profile,
                          "n_train": int(count), "description": "Observed joint TRAIN cell; model scope, unweighted sample"})
         if len(profiles) == 3:

@@ -127,11 +127,12 @@ def main(argv=None):
     p.add_argument("--models", default="tvae,ctgan")
     p.add_argument("--subsample", type=int, default=None, help="default: config baselines.subsample_rows")
     p.add_argument("--epochs", type=int, default=None, help="default: config baselines.epochs or 100")
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     args = p.parse_args(argv)
     cfg = load_config()
+    args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
     if args.mock:
         from tests.mock_data import make_mock_v2
         print(f"*** {MOCK_BANNER} *** (smoke run)")
