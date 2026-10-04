@@ -3,9 +3,7 @@ ProxyPatient — Generator (P2, real CVAE)
 =========================================
     generate(condition: dict, n: int = 1000, seed: int = 42) -> pd.DataFrame
 
-Same signature as backend/generator_stub.py (parameter name `condition`,
-as called by backend/main.py). Enabled in main.py with env var
-PP_GENERATOR=real; otherwise the stub stays in use.
+Decoder-only generator; serving validates artifact identity and mode.
 
 condition: any subset of
     sex              "female"/"male" (API form) or 0/1
@@ -52,26 +50,51 @@ FORBIDDEN_INPUT_CONDITIONS = [
 _BUNDLES = {}
 
 
+class ModelUnavailable(RuntimeError):
+    pass
+
+
 def _paths():
-    return (os.environ.get("PP_CVAE_WEIGHTS", DEFAULT_WEIGHTS),
-            os.environ.get("PP_CONDITION_MARGINALS", DEFAULT_MARGINALS))
+    root = os.environ.get("PP_MODEL_DIR", os.path.join(BASE_DIR, "models"))
+    return (os.environ.get("PP_CVAE_WEIGHTS", os.path.join(root, "cvae_weights.pt")),
+            os.environ.get("PP_CONDITION_MARGINALS", os.path.join(root, "condition_marginals.json")),
+            os.path.join(root, "cvae_preproc.json"))
 
 
 def _load():
-    wpath, mpath = _paths()
-    key = (wpath, mpath)
-    if key not in _BUNDLES:
-        if not os.path.exists(wpath):
-            raise RuntimeError(
-                f"CVAE weights not found at {wpath}. Train the model first "
-                "(python -m models.train_cvae, see models/RUN_ON_COLAB.md) or set PP_CVAE_WEIGHTS.")
-        if not os.path.exists(mpath):
-            raise RuntimeError(f"condition_marginals.json not found at {mpath}. Train the model first.")
-        from models.sampling import CVAEBundle   # torch imported only when the real generator is used
-        with open(mpath, encoding="utf-8") as f:
-            marg = json.load(f)
-        _BUNDLES[key] = (CVAEBundle.load(wpath, "cpu"), marg)
-    return _BUNDLES[key]
+    from models.common import load_config
+    from models.artifacts import validate_checkpoint
+    paths = _paths()
+    demo = os.environ.get("PP_DEMO_MOCK") == "1"
+    key = (paths, demo, tuple(os.stat(p).st_mtime_ns if os.path.isfile(p) else None for p in paths))
+    try:
+        if key not in _BUNDLES:
+            if not all(os.path.isfile(p) for p in paths):
+                raise ModelUnavailable("CVAE artifacts unavailable. Train the model first or explicitly create a MOCK demo checkpoint.")
+            from models.sampling import CVAEBundle
+            bundle = CVAEBundle.load(paths[0], "cpu")
+            with open(paths[1], encoding="utf-8") as f:
+                marg = json.load(f)
+            with open(paths[2], encoding="utf-8") as f:
+                pre = json.load(f)
+            if pre != bundle.ckpt["preproc"]:
+                raise ModelUnavailable("Preprocessor does not match checkpoint")
+            is_mock = bundle.ckpt.get("is_mock", bundle.ckpt.get("mock"))
+            if is_mock is not demo:
+                raise ModelUnavailable("MOCK checkpoints require PP_DEMO_MOCK=1; demo mode requires a MOCK checkpoint")
+            fp = validate_checkpoint(bundle.ckpt, load_config())
+            if marg.get("_meta", {}).get("fingerprint") != fp:
+                raise ModelUnavailable("Marginals fingerprint does not match checkpoint")
+            _BUNDLES.clear()
+            _BUNDLES[key] = (bundle, marg)
+        bundle, marg = _BUNDLES[key]
+        # Revalidate against live configuration even when weights are cached.
+        validate_checkpoint(bundle.ckpt, load_config())
+        return bundle, marg
+    except ModelUnavailable:
+        raise
+    except Exception as exc:
+        raise ModelUnavailable("CVAE artifacts invalid or incompatible: " + str(exc)) from exc
 
 
 def _parse_binary(key, v):
@@ -148,7 +171,7 @@ def _marginal_probs(marg: dict, key: str, levels):
     counts = marg.get(key, {})
     w = np.array([float(counts.get(lab) or 0) for lab in levels])
     if w.sum() <= 0:
-        w = np.ones(len(levels))
+        raise ModelUnavailable(f"No supported marginal counts for {key}")
     return w / w.sum()
 
 
@@ -212,6 +235,8 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
             df[c] = df[c].astype(int)
     df["elevated_glucose_proxy"] = (df["glucose_raw"] >= float(cfg["threshold_mg_dl"])).astype(int)
     df["is_synthetic"] = True
+    df.attrs["fingerprint"] = bundle.ckpt["fingerprint"]
+    df.attrs["demo"] = bool(bundle.ckpt["is_mock"])
     df.attrs["sampling"] = {**gen.attrs.get("sampling", {}), "filled_from_marginals": filled,
                             "seed": int(seed), "label": "SYNTHETIC"}
 

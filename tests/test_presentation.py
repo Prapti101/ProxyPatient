@@ -42,3 +42,37 @@ def test_noncontiguous_state_mapping_and_unknown_rejection(real_generator_env):
     assert (generator.generate({'state': 37}, 100)['state'] == 37).all()
     with pytest.raises(ValueError, match='state'):
         generator.generate({'state': 26}, 100)
+
+
+def test_real_mode_rejects_mock_and_demo_is_visible(real_generator_env, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    with TestClient(app) as client:
+        assert client.get('/health').json()['mode'] == 'demo'
+        assert client.get('/schema').json()['demo'] is True
+        monkeypatch.delenv('PP_DEMO_MOCK')
+        assert client.get('/health').json()['mode'] == 'unavailable'
+        response = client.post('/generate', json={'condition': {}, 'n': 100})
+        assert response.status_code == 503 and 'MOCK' in response.text
+
+
+def test_outcome_uses_finite_generated_glucose_only():
+    import pandas as pd
+    from backend.outcome_stat_stub import outcome_stat
+    df = pd.DataFrame({'glucose_raw': [250.]*100 + [np.nan, np.inf], 'elevated_glucose_proxy': [0]*102})
+    assert outcome_stat(df, {'threshold_mg_dl': 200})['rate'] == 1.
+    assert outcome_stat(df, {'threshold_mg_dl': 200})['n'] == 100
+    with pytest.raises(ValueError, match='threshold'):
+        outcome_stat(df, {'threshold_mg_dl': 300})
+    with pytest.raises(ValueError, match='required'):
+        outcome_stat(df.drop(columns='glucose_raw'), {'threshold_mg_dl': 200})
+
+
+def test_checkpoint_config_mismatch_is_rejected(real_generator_env, monkeypatch):
+    from backend import generator
+    from models import artifacts
+    cfg = load_config()
+    cfg['outcome']['threshold_mg_dl'] = 300
+    monkeypatch.setattr('models.common.load_config', lambda: cfg)
+    with pytest.raises(generator.ModelUnavailable, match='fingerprint'):
+        generator._load()

@@ -33,16 +33,7 @@ def set_seed(seed: int):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
 
 
-def inference_cfg(cfg: dict) -> dict:
-    """Config subset stored inside the checkpoint so inference is self-contained."""
-    return {
-        "age_bands": cfg["age_bands"],
-        "age_band_labels": {"women": cfg["whatif_options"]["age_band"]["women_options"],
-                            "men": cfg["whatif_options"]["age_band"]["men_options"]},
-        "bmi_bands": cfg["bmi"]["bands"],
-        "threshold_mg_dl": cfg["outcome"]["threshold_mg_dl"],
-        "glucose_clip_mg_dl": cfg.get("model", {}).get("glucose_clip_mg_dl", [20, 600]),
-    }
+from models.artifacts import inference_cfg, fingerprint
 
 
 def load_frames(args, cfg):
@@ -160,11 +151,14 @@ def train(args, cfg):
     ckpt = {"state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
             "hparams": model.hparams, "preproc": json.loads(json.dumps(_pre_dict(pre))),
             "cfg": inference_cfg(cfg), "variant": args.variant, "glucose_head": args.glucose_head,
-            "mock": bool(args.mock), "created": datetime.now(timezone.utc).isoformat()}
+            "mock": bool(args.mock), "is_mock": bool(args.mock),
+            "fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
     weights = args.weights_out or paths["weights"]
     torch.save(ckpt, weights)
     pre.to_json(paths["preproc"])
-    write_json(condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg), paths["marginals"])
+    marginals = condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg)
+    marginals["_meta"]["fingerprint"] = ckpt["fingerprint"]
+    write_json(marginals, paths["marginals"])
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
     print(f"saved weights -> {weights} (git-ignored; do not commit)")

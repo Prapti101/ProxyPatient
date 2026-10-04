@@ -30,18 +30,12 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
-# ── Generator: stub by default; P2's CVAE when env var PP_GENERATOR=real ─────
-if os.environ.get("PP_GENERATOR", "").lower() == "real":
-    from backend.generator      import generate      # REAL: P2's CVAE
-    MODEL_USED = "CVAE"
-else:
-    from backend.generator_stub import generate      # STUB
-    MODEL_USED = "CVAE-stub (set PP_GENERATOR=real for P2 model)"
-
-# ── Swap these two lines when P3 delivers the real outcome_stat ──────────────
-from backend.outcome_stat_stub import outcome_stat   # STUB: replace with real
-# from backend.outcome_stat    import outcome_stat    # REAL: P3's implementation
+from backend.generator import generate, ModelUnavailable, _load, FORBIDDEN_INPUT_CONDITIONS
+from backend.outcome_stat_stub import outcome_stat
+MODEL_USED = "CVAE"
 
 from backend.schemas import (
     GenerateRequest, GenerateResponse, OutcomeStat,
@@ -50,7 +44,6 @@ from backend.schemas import (
     ParseRequest, ParseResponse, Condition,
     DISCLAIMER
 )
-from backend.generator_stub import FORBIDDEN_INPUT_CONDITIONS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SETUP
@@ -129,7 +122,12 @@ def load_assets():
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 def health():
     """System health check."""
-    return HealthResponse()
+    try:
+        bundle, _ = _load()
+        return HealthResponse(mode="demo" if bundle.ckpt["is_mock"] else "real",
+                              model_fingerprint=bundle.ckpt["fingerprint"])
+    except ModelUnavailable as exc:
+        return HealthResponse(status="unavailable", mode="unavailable", detail=str(exc))
 
 
 @app.get("/schema", tags=["Data"])
@@ -224,8 +222,10 @@ def generate_cohort(req: GenerateRequest):
     try:
         logger.info(f"Generating cohort: n={req.n}, condition={condition_dict}")
         df = generate(condition=condition_dict, n=req.n, seed=req.seed)
+    except ModelUnavailable as e:
+        raise HTTPException(503, str(e))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(422, str(e))
     except Exception as e:
         logger.error(f"Generation error: {e}")
         raise HTTPException(500, f"Generation failed: {str(e)}")
@@ -239,7 +239,8 @@ def generate_cohort(req: GenerateRequest):
     return GenerateResponse(
         condition    = req.condition,
         outcome_stat = OutcomeStat(**stat),
-        model_used   = MODEL_USED
+        model_used   = MODEL_USED,
+        model_fingerprint=df.attrs["fingerprint"]
     )
 
 
@@ -264,6 +265,8 @@ def compare_scenarios(req: CompareRequest):
         try:
             df   = generate(condition=condition_dict, n=scenario.n, seed=scenario.seed)
             stat = outcome_stat(df, rule=RULE, seed=scenario.seed)
+        except ModelUnavailable as e:
+            raise HTTPException(503, str(e))
         except ValueError as e:
             raise HTTPException(400, f"Scenario '{scenario.label}': {e}")
         except Exception as e:
@@ -282,7 +285,7 @@ def compare_scenarios(req: CompareRequest):
             delta_pp     = delta_pp
         ))
 
-    return CompareResponse(scenarios=results)
+    return CompareResponse(scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 
 
 @app.get("/validation", tags=["Validation"])
@@ -348,3 +351,25 @@ def _state_options():
 @app.get("/options", tags=["Data"])
 def options():
     return {"state": _state_options()}
+
+
+class DemoBannerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if os.environ.get("PP_DEMO_MOCK") != "1":
+            return response
+        banner = "MOCK DEMO — not NFHS-5; synthetic rates are not research results"
+        response.headers["X-ProxyPatient-Demo"] = banner.encode("ascii", "replace").decode()
+        if "application/json" in response.headers.get("content-type", ""):
+            body = b"".join([chunk async for chunk in response.body_iterator])
+            payload = json.loads(body)
+            if isinstance(payload, dict):
+                payload.update(demo=True, banner=banner)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            return Response(json.dumps(payload), status_code=response.status_code,
+                            headers=headers, media_type="application/json")
+        return response
+
+
+app.add_middleware(DemoBannerMiddleware)

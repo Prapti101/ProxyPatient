@@ -101,6 +101,7 @@ class OutcomeStat(BaseModel):
 
 
 class GenerateResponse(BaseModel):
+    model_fingerprint: str
     condition:    Condition
     outcome_stat: OutcomeStat
     disclaimer:   str = DISCLAIMER
@@ -130,6 +131,7 @@ class ScenarioResult(BaseModel):
 
 
 class CompareResponse(BaseModel):
+    model_fingerprint: str
     scenarios:  List[ScenarioResult]
     disclaimer: str = DISCLAIMER
     note:       str = ("Differences are descriptive shifts in synthetic cohorts, "
@@ -137,6 +139,9 @@ class CompareResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
+    mode: str = "unavailable"
+    model_fingerprint: Optional[str] = None
+    detail: Optional[str] = None
     status:  str = "ok"
     version: str = "2.0.0"
     model:   str = "CVAE"
