@@ -1,0 +1,250 @@
+"""
+Data module for the CVAE: loads train/val, applies the training scope,
+harmonises age bands, builds condition and generated-variable arrays, and fits
+TRAIN-ONLY normalisation (saved as models/cvae_preproc.json).
+
+All lists come from config.yaml (`model` section) so they can be changed
+without touching code. Only aggregate information leaves this module.
+"""
+
+import json
+import os
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+
+from models.common import (AGE3_LABELS, MODELS_DIR, age3_index, as_num, as_str,
+                           bmi_band_names, min_cell, write_json)
+
+# Columns dropped before modelling (P1 handoff); kept here for the record.
+DROP_COLUMNS = ["_row_id", "survey_weight", "glucose_ever_checked",
+                "told_high_glucose", "on_glucose_medicine", "glucose_time",
+                "self_reported_hypertension", "on_bp_medication"]
+
+
+@dataclass
+class Spec:
+    """What the model conditions on and what it generates."""
+    cond_names: List[str]                     # internal condition keys, in order
+    cond_levels: Dict[str, List[str]]         # level labels per condition
+    use_state: bool
+    n_states: int
+    cont_cols: List[str]                      # generated continuous (model space)
+    cat_cols: List[str]                       # generated categorical
+    cat_levels: Dict[str, List[float]]
+    generate_bp: bool
+    weight_derived: bool = True               # weight_kg = bmi * (height/100)^2
+
+    def to_dict(self):
+        return self.__dict__.copy()
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+
+
+def build_spec(cfg: dict, use_state: Optional[bool] = None,
+               generate_bp: Optional[bool] = None) -> Spec:
+    m = cfg.get("model", {})
+    use_state = m.get("state_embedding", True) if use_state is None else use_state
+    generate_bp = m.get("generate_bp", False) if generate_bp is None else generate_bp
+    w = cfg["whatif_options"]
+    levels = {
+        "sex": ["0", "1"],
+        "age_band": list(AGE3_LABELS),
+        "residence": list(w["residence"]["options"]),
+        "wealth_quintile": [str(x) for x in w["wealth_quintile"]["options"]],
+        "bmi_band": bmi_band_names(cfg),
+        "hypertension": ["0", "1"],
+        "tobacco": ["0", "1"],
+        "alcohol": ["0", "1"],
+    }
+    cont = list(m.get("generated_continuous",
+                      ["age", "bmi", "height_cm", "waist_cm", "hip_cm", "log_glucose"]))
+    if generate_bp:
+        cont += [c for c in ["systolic_avg", "diastolic_avg"] if c not in cont]
+    cat = list(m.get("generated_categorical", ["education", "bp_ever_checked"]))
+    cat_levels = {"education": [0.0, 1.0, 2.0, 3.0], "bp_ever_checked": [0.0, 1.0]}
+    return Spec(cond_names=list(levels), cond_levels=levels, use_state=bool(use_state),
+                n_states=int(m.get("n_states", 36)), cont_cols=cont, cat_cols=cat,
+                cat_levels={c: cat_levels[c] for c in cat}, generate_bp=bool(generate_bp))
+
+
+# ── Scope ─────────────────────────────────────────────────────────────────────
+
+def apply_scope(df: pd.DataFrame, cfg: dict, scope: Optional[str] = None):
+    """Return (in-scope frame, aggregate exclusion report)."""
+    scope = scope or cfg.get("model", {}).get("scope", "complete_conditions")
+    k = min_cell(cfg)
+    g = as_num(df["glucose_raw"])
+    rules = {"glucose_raw known": g.notna()}
+    if scope == "complete_conditions":
+        rules["bmi_measured == 1"] = as_num(df["bmi_measured"]) == 1
+        rules["hypertension not null"] = as_num(df["hypertension"]).notna()
+    elif scope != "glucose_known":
+        raise ValueError(f"Unknown scope {scope!r}")
+    keep = pd.Series(True, index=df.index)
+    report = {"scope": scope, "n_input": int(len(df)), "steps": []}
+    sex = as_num(df["sex"])
+    for name, r in rules.items():
+        drop = keep & ~r
+        report["steps"].append({
+            "rule": name,
+            "n_excluded": int(drop.sum()),
+            "n_excluded_women": int((drop & (sex == 0)).sum()),
+            "n_excluded_men": int((drop & (sex == 1)).sum()),
+        })
+        keep &= r
+    report["n_in_scope"] = int(keep.sum())
+    report["in_scope_share"] = round(float(keep.mean()), 6) if len(df) else None
+    # who is excluded, by sex / harmonised age band (aggregate, suppressed)
+    by = {}
+    a3 = age3_index(df["age"])
+    for s in (0, 1):
+        for i, lab in enumerate(AGE3_LABELS):
+            cell = (sex == s) & (a3 == i)
+            n = int(cell.sum())
+            by[f"sex={s}, age={lab}"] = None if n < k else round(float((cell & ~keep).sum() / n), 6)
+    report["excluded_share_by_sex_age"] = by
+    return df.loc[keep].copy(), report
+
+
+# ── Encoding ──────────────────────────────────────────────────────────────────
+
+def condition_frame(df: pd.DataFrame, spec: Spec) -> pd.DataFrame:
+    """Condition labels (strings) per row from the v2 columns."""
+    out = pd.DataFrame(index=df.index)
+    out["sex"] = as_num(df["sex"]).map(lambda v: None if pd.isna(v) else str(int(v)))
+    a3 = age3_index(df["age"])
+    out["age_band"] = a3.map(lambda v: None if pd.isna(v) else AGE3_LABELS[int(v)])
+    out["residence"] = as_str(df["residence"])
+    out["wealth_quintile"] = as_num(df["wealth_quintile"]).map(lambda v: None if pd.isna(v) else str(int(v)))
+    out["bmi_band"] = as_str(df["bmi_band"])
+    for key, col in [("hypertension", "hypertension"), ("tobacco", "any_tobacco"), ("alcohol", "alcohol")]:
+        out[key] = as_num(df[col]).map(lambda v: None if pd.isna(v) else str(int(round(v))))
+    return out
+
+
+def encode_conditions(cf: pd.DataFrame, spec: Spec) -> np.ndarray:
+    """Integer level index per condition; -1 where missing/unknown."""
+    cols = []
+    for c in spec.cond_names:
+        lut = {lab: i for i, lab in enumerate(spec.cond_levels[c])}
+        cols.append(cf[c].map(lambda v: lut.get(v, -1) if v is not None and not pd.isna(v) else -1).to_numpy())
+    return np.stack(cols, axis=1).astype(np.int64)
+
+
+def state_index(df: pd.DataFrame, spec: Spec) -> np.ndarray:
+    s = as_num(df["state"]).fillna(0).astype(int).to_numpy() - 1      # DHS 1..36 -> 0..35
+    return np.where((s >= 0) & (s < spec.n_states), s, -1)
+
+
+def raw_generated(df: pd.DataFrame, spec: Spec) -> pd.DataFrame:
+    """Generated variables in model space (log glucose), unnormalised."""
+    out = pd.DataFrame(index=df.index)
+    for c in spec.cont_cols:
+        if c == "log_glucose":
+            g = as_num(df["glucose_raw"])
+            out[c] = np.log(g.where(g > 0))
+        else:
+            out[c] = as_num(df[c])
+    for c in spec.cat_cols:
+        out[c] = as_num(df[c])
+    return out
+
+
+@dataclass
+class Preproc:
+    spec: Spec
+    mean: Dict[str, float]
+    std: Dict[str, float]
+    lo: Dict[str, float]              # train min/max in model space (for clipping)
+    hi: Dict[str, float]
+    n_train_rows: int
+    meta: dict = field(default_factory=dict)
+
+    def to_json(self, path: str):
+        write_json({"spec": self.spec.to_dict(), "mean": self.mean, "std": self.std,
+                    "lo": self.lo, "hi": self.hi, "n_train_rows": self.n_train_rows,
+                    "meta": self.meta}, path)
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(spec=Spec.from_dict(d["spec"]), mean=d["mean"], std=d["std"],
+                   lo=d["lo"], hi=d["hi"], n_train_rows=d["n_train_rows"], meta=d.get("meta", {}))
+
+    @classmethod
+    def from_json(cls, path: str):
+        with open(path, encoding="utf-8") as f:
+            return cls.from_dict(json.load(f))
+
+
+def fit_preproc(train_gen: pd.DataFrame, spec: Spec) -> Preproc:
+    mean, std, lo, hi = {}, {}, {}, {}
+    for c in spec.cont_cols:
+        v = train_gen[c].dropna()
+        mean[c] = float(v.mean())
+        std[c] = float(v.std()) or 1.0
+        # 0.1th / 99.9th percentiles rather than min/max so no single respondent's
+        # value is stored; used only to clip extreme generated values.
+        lo[c] = float(v.quantile(0.001))
+        hi[c] = float(v.quantile(0.999))
+    return Preproc(spec=spec, mean=mean, std=std, lo=lo, hi=hi, n_train_rows=int(len(train_gen)),
+                   meta={"note": "Fit on TRAIN only (in-scope rows). Not P1's preprocess_v2.pkl."})
+
+
+@dataclass
+class Arrays:
+    cond: np.ndarray        # (n, n_cond) int64
+    state: np.ndarray       # (n,) int64, -1 unknown
+    cont: np.ndarray        # (n, n_cont) float32, normalised
+    cat: np.ndarray         # (n, n_cat) int64 level index
+    n_dropped: int
+
+
+def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
+    spec = pre.spec
+    cf = condition_frame(df, spec)
+    cond = encode_conditions(cf, spec)
+    gen = raw_generated(df, spec)
+    cont = np.stack([((gen[c] - pre.mean[c]) / pre.std[c]).to_numpy(dtype=float) for c in spec.cont_cols], 1)
+    cat_cols = []
+    for c in spec.cat_cols:
+        lut = {float(v): i for i, v in enumerate(spec.cat_levels[c])}
+        cat_cols.append(gen[c].map(lambda v: lut.get(float(v), -1) if not pd.isna(v) else -1).to_numpy())
+    cat = np.stack(cat_cols, 1) if cat_cols else np.zeros((len(df), 0), dtype=np.int64)
+    ok = (cond >= 0).all(1) & np.isfinite(cont).all(1) & (cat >= 0).all(1)
+    st = state_index(df, spec)
+    if spec.use_state:
+        ok &= st >= 0
+    return Arrays(cond=cond[ok], state=st[ok], cont=cont[ok].astype(np.float32),
+                  cat=cat[ok].astype(np.int64), n_dropped=int((~ok).sum()))
+
+
+def condition_marginals(df: pd.DataFrame, spec: Spec, cfg: dict) -> dict:
+    """Aggregate marginal shares of each condition (n < min_cell suppressed).
+    Used by the generator to fill unspecified condition keys."""
+    k = min_cell(cfg)
+    cf = condition_frame(df, spec)
+    out = {"_meta": {"source": "in-scope TRAIN rows", "n_rows": int(len(df)), "min_cell_size": k,
+                     "note": "Independent marginals. The UI should send a FULL baseline profile."}}
+    for c in spec.cond_names:
+        vc = cf[c].value_counts()
+        out[c] = {lab: (int(vc.get(lab, 0)) if vc.get(lab, 0) >= k else None) for lab in spec.cond_levels[c]}
+    # age distribution within each harmonised band by sex is learned by the model,
+    # state marginal is needed when state is not given
+    sv = as_num(df["state"]).value_counts()
+    out["state"] = {str(int(s)): (int(n) if n >= k else None) for s, n in sv.items() if not pd.isna(s)}
+    return out
+
+
+def default_paths(models_dir: str = MODELS_DIR) -> dict:
+    return {
+        "weights": os.path.join(models_dir, "cvae_weights.pt"),
+        "preproc": os.path.join(models_dir, "cvae_preproc.json"),
+        "marginals": os.path.join(models_dir, "condition_marginals.json"),
+        "train_log": os.path.join(models_dir, "cvae_train_log.json"),
+        "model_card": os.path.join(models_dir, "model_card.json"),
+    }

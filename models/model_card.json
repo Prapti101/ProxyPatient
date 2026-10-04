@@ -1,0 +1,26 @@
+{
+  "model": "ProxyPatient CVAE",
+  "status": "TEMPLATE - overwritten by models/train_cvae.py when the model is trained on real data",
+  "intended_use": "Generate SYNTHETIC cohorts for population-level health awareness. Outcome: elevated glucose (proxy), random capillary glucose >= 200 mg/dL. Not a diagnosis, not an individual risk.",
+  "not_for": ["diagnosis", "treatment decisions", "individual prediction", "causal claims"],
+  "data": {
+    "source": "NFHS-5 India 2019-21 (DHS)",
+    "splits_used": ["train", "val"],
+    "test_split": "locked; not used for training or model selection",
+    "scope": "complete_conditions (glucose known AND bmi_measured == 1 AND hypertension known)",
+    "n_train": null,
+    "n_val": null
+  },
+  "conditions": ["sex", "age_band", "residence", "wealth_quintile", "bmi_band", "hypertension", "tobacco", "alcohol", "state"],
+  "generated": ["age", "bmi", "height_cm", "waist_cm", "hip_cm", "log_glucose", "education", "bp_ever_checked", "weight_kg (derived)"],
+  "architecture": null,
+  "training": {"best_val_elbo": null, "epochs_run": null, "seconds": null, "device": null, "seed": 42},
+  "survey_weights": "not used in training (unweighted model)",
+  "limitations": [
+    "Trained only on respondents with glucose, measured BMI and known hypertension status.",
+    "Unspecified conditions are filled from independent marginals.",
+    "What-if = how the synthetic cohort shifts, not a causal intervention.",
+    "No external validation dataset (NMB-2017 has no data file)."
+  ],
+  "evaluation": "see docs/model_comparison_dev.json (validation only)"
+}

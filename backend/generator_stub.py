@@ -14,6 +14,12 @@ implements the same generate() signature. To switch from stub to real model:
        to:
          from backend.generator import generate
 
+NOTE (P2): the real generator (backend/generator.py, enabled with env var
+PP_GENERATOR=real) DOES return glucose_raw (mg/dL), elevated_glucose_proxy
+(derived from the generated glucose_raw) and is_synthetic=True. Glucose is a
+GENERATED variable, never a conditioning input. The v2 data files are in
+ORIGINAL units (not scaled). The rule below applies to this stub only.
+
 RULES THIS STUB ENFORCES:
   - glucose_raw and elevated_glucose_proxy are NEVER generated/returned.
   - Output DataFrame never contains raw DHS rows.
