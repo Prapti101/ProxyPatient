@@ -73,7 +73,7 @@ def combo_key(cf: pd.DataFrame, cols) -> pd.Series:
 
 
 def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
-                     batch: int = 50_000, max_factor: float = 30.0):
+                     batch: int = 50_000, max_factor: float = 30.0, sample_columns=None):
     """Fill one generated row per row of `wanted` (condition labels) by drawing
     unconditional samples and keeping those whose condition columns match.
     Returns (samples aligned to wanted's index with NaN rows where unfilled, stats)."""
@@ -81,10 +81,12 @@ def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
     need = combo_key(wanted, cond_cols)
     slots = {k: list(ix) for k, ix in need.groupby(need).groups.items()}
     filled = {}
+    columns = list(sample_columns or cond_cols)
     drawn = accepted = 0
     t0 = time.time()
     while slots and drawn < max_factor * len(wanted):
         s = model.sample(batch)
+        columns = list(s.columns)
         drawn += len(s)
         keys = combo_key(s, cond_cols)
         for k, ix in keys.groupby(keys).groups.items():
@@ -98,7 +100,7 @@ def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
             accepted += len(take)
             if not free:
                 del slots[k]
-    res = pd.DataFrame([filled[i] for i in sorted(filled)], index=sorted(filled)).reindex(wanted.index)
+    res = pd.DataFrame([filled[i] for i in sorted(filled)], index=sorted(filled), columns=columns).reindex(wanted.index)
     stats = {"requested": int(len(wanted)), "filled": int(len(filled)),
              "fill_rate": round(len(filled) / max(len(wanted), 1), 6),
              "drawn": int(drawn), "acceptance_rate": round(accepted / max(drawn, 1), 6),

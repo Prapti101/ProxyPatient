@@ -153,6 +153,8 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if not args.mock and not args.data_dir:
         parser.error('--data-dir or PP_DATA_DIR is required for private runs')
+    if args._stage == "final_test" and not args.final_test:
+        parser.error("final-test stage requires the acknowledged final-test command")
     if args.final_test and not args.acknowledge_final:
         parser.error('--final-test requires --i-understand-this-is-the-single-final-run')
     if args.final_test and (args.quick or args.full):

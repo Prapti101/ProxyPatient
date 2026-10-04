@@ -104,7 +104,7 @@ def apply_scope(df: pd.DataFrame, cfg: dict, scope: Optional[str] = None):
     scope = scope or cfg.get("model", {}).get("scope", "complete_conditions")
     k = min_cell(cfg)
     g = as_num(df["glucose_raw"])
-    rules = {"glucose_raw known": g.notna()}
+    rules = {"glucose_raw known": pd.Series(np.isfinite(g), index=df.index)}
     if scope == "complete_conditions":
         rules["bmi_measured == 1"] = as_num(df["bmi_measured"]) == 1
         rules["hypertension not null"] = as_num(df["hypertension"]).notna()
@@ -141,14 +141,17 @@ def apply_scope(df: pd.DataFrame, cfg: dict, scope: Optional[str] = None):
 def condition_frame(df: pd.DataFrame, spec: Spec) -> pd.DataFrame:
     """Condition labels (strings) per row from the v2 columns."""
     out = pd.DataFrame(index=df.index)
-    out["sex"] = as_num(df["sex"]).map(lambda v: None if pd.isna(v) else str(int(v)))
-    a3 = age3_index(df["age"])
+    sex = as_num(df["sex"])
+    out["sex"] = sex.where(sex.isin([0, 1])).map(lambda v: None if pd.isna(v) else str(int(v)))
+    age = as_num(df["age"])
+    a3 = age3_index(age)
+    a3 = a3.where(((sex == 0) & age.between(15, 49)) | ((sex == 1) & age.between(15, 54)))
     out["age_band"] = a3.map(lambda v: None if pd.isna(v) else AGE3_LABELS[int(v)])
     out["residence"] = as_str(df["residence"])
-    out["wealth_quintile"] = as_num(df["wealth_quintile"]).map(lambda v: None if pd.isna(v) else str(int(v)))
+    out["wealth_quintile"] = as_num(df["wealth_quintile"]).where(as_num(df["wealth_quintile"]).isin([1, 2, 3, 4, 5])).map(lambda v: None if pd.isna(v) else str(int(v)))
     out["bmi_band"] = as_str(df["bmi_band"])
     for key, col in [("hypertension", "hypertension"), ("tobacco", "any_tobacco"), ("alcohol", "alcohol")]:
-        out[key] = as_num(df[col]).map(lambda v: None if pd.isna(v) else str(int(round(v))))
+        out[key] = as_num(df[col]).where(as_num(df[col]).isin([0, 1])).map(lambda v: None if pd.isna(v) else str(int(v)))
     return out
 
 
@@ -164,7 +167,7 @@ def encode_conditions(cf: pd.DataFrame, spec: Spec) -> np.ndarray:
 def state_index(df: pd.DataFrame, spec: Spec) -> np.ndarray:
     values = as_num(df["state"])
     mapping = {code: index for index, code in enumerate(spec.state_codes)}
-    return values.map(mapping).fillna(-1).to_numpy(dtype=np.int64)
+    return values.where((values % 1) == 0).map(mapping).fillna(-1).to_numpy(dtype=np.int64)
 
 
 def raw_generated(df: pd.DataFrame, spec: Spec) -> pd.DataFrame:
@@ -210,9 +213,13 @@ class Preproc:
 def fit_preproc(train_gen: pd.DataFrame, spec: Spec) -> Preproc:
     mean, std, lo, hi = {}, {}, {}, {}
     for c in spec.cont_cols:
-        v = train_gen[c].dropna()
+        v = train_gen[c]
+        v = v[np.isfinite(v)]
+        if len(v) < 30:
+            raise ValueError(f"Insufficient finite TRAIN values for {c}; cannot fit normalization")
         mean[c] = float(v.mean())
-        std[c] = float(v.std()) or 1.0
+        scale = float(v.std())
+        std[c] = scale if np.isfinite(scale) and scale > 0 else 1.0
         # 0.1th / 99.9th percentiles rather than min/max so no single respondent's
         # value is stored; used only to clip extreme generated values.
         lo[c] = float(v.quantile(0.001))
@@ -235,6 +242,9 @@ class Arrays:
 
 def make_arrays(df: pd.DataFrame, pre: Preproc) -> Arrays:
     spec = pre.spec
+    for col in spec.cont_cols:
+        if not np.isfinite(pre.std[col]) or pre.std[col] <= 0 or not np.isfinite(pre.mean[col]):
+            raise ValueError("Invalid finite normalization scale")
     cf = condition_frame(df, spec)
     cond = encode_conditions(cf, spec)
     gen = raw_generated(df, spec)

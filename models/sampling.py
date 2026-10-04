@@ -64,6 +64,8 @@ class CVAEBundle:
                 out[c] = v
         for j, c in enumerate(s.cat_cols):
             out[c] = np.asarray(s.cat_levels[c], dtype=float)[cat[:, j]]
+        if any(not np.isfinite(v).all() for v in out.values()):
+            raise ValueError("Non-finite CVAE decoder output; generation refused")
         return out
 
     def _consistent(self, u: dict, bounds) -> np.ndarray:
@@ -77,6 +79,24 @@ class CVAEBundle:
     # ── main entry ───────────────────────────────────────────────────────────
     def sample(self, cond_idx: np.ndarray, state_idx: Optional[np.ndarray] = None,
                seed: int = 42, max_rounds: int = 30, batch_rows: int = 200_000) -> pd.DataFrame:
+        if cond_idx.ndim != 2 or cond_idx.shape[1] != len(self.spec.cond_names):
+            raise ValueError("Condition array has wrong shape")
+        if any(((cond_idx[:, j] < 0) | (cond_idx[:, j] >= len(self.spec.cond_levels[c]))).any()
+               for j, c in enumerate(self.spec.cond_names)):
+            raise ValueError("Invalid encoded condition")
+        if self.spec.use_state and (state_idx is None or len(state_idx) != len(cond_idx)
+                                   or ((state_idx < 0) | (state_idx >= self.spec.n_states)).any()):
+            raise ValueError("Unsupported or missing encoded state")
+        if batch_rows <= 0:
+            raise ValueError("batch_rows must be positive")
+        if len(cond_idx) == 0:
+            columns = ["glucose_raw" if c == "log_glucose" else c for c in self.spec.cont_cols] + self.spec.cat_cols
+            if self.spec.weight_derived:
+                columns.append("weight_kg")
+            result = pd.DataFrame({c: pd.Series(dtype="int64" if c == "age" else "float64") for c in columns})
+            result.attrs["sampling"] = {"n": None, "first_pass_inconsistent_share": None,
+                                        "clipped_after_max_rounds": None, "consistent_without_clipping_share": None}
+            return result
         t0 = time.time()
         g = torch.Generator(device=self.device).manual_seed(int(seed))
         n = len(cond_idx)

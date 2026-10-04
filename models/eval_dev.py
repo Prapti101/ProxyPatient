@@ -65,7 +65,10 @@ def complete_rows(ru: pd.DataFrame, spec) -> pd.Series:
 
 
 def outcome(df, thr):
-    return (df["glucose_raw"] >= thr).astype(float)
+    values = df["glucose_raw"].astype(float)
+    if not np.isfinite(values).all():
+        raise ValueError("Non-finite glucose cannot be scored as outcome zero")
+    return (values >= thr).astype(float)
 
 
 # ── generation per model ─────────────────────────────────────────────────────
@@ -92,7 +95,7 @@ def gen_baseline(path, cf, spec, cfg, seed):
     from models.train_baselines import rejection_sample, to_units
     m = CTGAN.load(path)          # works for TVAE pickles too (generic pickle load)
     wanted = cf.reset_index(drop=True)
-    res, st = rejection_sample(m, wanted, spec.cond_names, seed)
+    res, st = rejection_sample(m, wanted, spec.cond_names, seed, sample_columns=spec.cond_names + spec.cont_cols + spec.cat_cols)
     u = to_units(res.drop(columns=spec.cond_names), cfg)
     out = wanted.copy()
     for c in u.columns:

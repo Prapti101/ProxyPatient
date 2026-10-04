@@ -250,3 +250,55 @@ def test_api_version_and_real_parser_disabled(monkeypatch):
         assert c.get('/openapi.json').json()['info']['version'] == '2.0.0'
         assert c.post('/parse', json={'text': 'urban women'}).status_code == 403
         assert c.get('/validation').json()['status'] == 'pending'
+
+
+def test_normalization_rejects_insufficient_values_and_invalid_scales():
+    from models.data import Preproc
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(1000), cfg)
+    spec = build_spec(cfg, training_df=frame)
+    generated = raw_generated(frame, spec)
+    generated['waist_cm'] = np.nan
+    with pytest.raises(ValueError, match='finite TRAIN'):
+        fit_preproc(generated, spec)
+    pre = fit_preproc(raw_generated(frame, spec), spec)
+    pre.std['age'] = np.nan
+    with pytest.raises(ValueError, match='scale'):
+        make_arrays(frame, pre)
+
+
+def test_invalid_numeric_domains_are_not_truncated():
+    from models.data import condition_frame, state_index
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(1000), cfg)
+    spec = build_spec(cfg, training_df=frame)
+    frame.loc[frame.index[:3], 'sex'] = .5
+    frame.loc[frame.index[3:6], 'wealth_quintile'] = 1.5
+    frame.loc[frame.index[6:9], 'any_tobacco'] = .5
+    frame.loc[frame.index[9:12], 'age'] = 99
+    frame.loc[frame.index[12:15], 'state'] = 1.5
+    cf = condition_frame(frame, spec)
+    assert cf.loc[frame.index[:3], 'sex'].isna().all()
+    assert cf.loc[frame.index[3:6], 'wealth_quintile'].isna().all()
+    assert cf.loc[frame.index[6:9], 'tobacco'].isna().all()
+    assert cf.loc[frame.index[9:12], 'age_band'].isna().all()
+    assert (state_index(frame, spec)[12:15] == -1).all()
+
+
+def test_empty_samples_keep_typed_columns_and_invalid_state_stops(mock_model_dir):
+    from models.sampling import CVAEBundle
+    bundle = CVAEBundle.load(str(mock_model_dir/'cvae_weights.pt'))
+    frame = bundle.sample(np.empty((0, len(bundle.spec.cond_names)), dtype=int), np.empty(0, dtype=int))
+    assert len(frame) == 0 and 'glucose_raw' in frame and frame['age'].dtype.kind == 'i'
+    with pytest.raises(ValueError, match='state'):
+        bundle.sample(np.zeros((10, len(bundle.spec.cond_names)), dtype=int), np.full(10, -1))
+
+
+def test_all_unfilled_baseline_keeps_schema():
+    import pandas as pd
+    from models.train_baselines import rejection_sample
+    class NoMatch:
+        def set_random_state(self, seed): pass
+        def sample(self, n): return pd.DataFrame({'sex': ['1']*n, 'glucose_raw': [100.]*n})
+    frame, stats = rejection_sample(NoMatch(), pd.DataFrame({'sex': ['0']*100}), ['sex'], 42, batch=100, max_factor=1)
+    assert len(frame) == 100 and list(frame) == ['sex', 'glucose_raw'] and frame.isna().all().all()

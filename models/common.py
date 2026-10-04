@@ -116,7 +116,7 @@ def age3_index(age: pd.Series) -> pd.Series:
     """Harmonised age band index 0/1/2 (15-24, 25-34, 35+) from numeric age."""
     a = as_num(age)
     idx = pd.Series(np.where(a < 25, 0, np.where(a < 35, 1, 2)), index=age.index, dtype=float)
-    return idx.where(a.notna())
+    return idx.where(a.between(15, 54))
 
 
 def age_band_bounds(cfg: dict, sex: int, age3: int):
