@@ -16,6 +16,7 @@ import argparse
 import os
 import pickle
 import time
+import resource
 from datetime import datetime, timezone
 
 import numpy as np
@@ -160,6 +161,7 @@ def main(argv=None):
         _, st = rejection_sample(m, probe, spec.cond_names, args.seed, batch=20_000, max_factor=20)
         log["models"][kind] = {"train_seconds": secs, "probe_rejection_sampling": st}
         print(f"  {kind}: {secs}s, probe acceptance {st['acceptance_rate']}, fill {st['fill_rate']}")
+    log["peak_memory_mib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024, 2)
     write_json(log, args.log_out)
     return log
 

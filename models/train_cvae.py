@@ -16,6 +16,7 @@ import copy
 import json
 import os
 import random
+import resource
 import time
 from datetime import datetime, timezone
 
@@ -155,6 +156,7 @@ def train(args, cfg):
         best_state = model.state_dict()
     model.load_state_dict(best_state)
     log["best_val_elbo"] = round(best, 5) if np.isfinite(best) else None
+    log["peak_memory_mib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024, 2)
     log["train_seconds"] = round(time.time() - t0, 1)
 
     os.makedirs(args.out_dir, exist_ok=True)

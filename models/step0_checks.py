@@ -183,13 +183,13 @@ def main(argv=None):
           f"Aggregates only; cells with n < {k} are suppressed.", ""]
     res = {"mock": args.mock}
     splits = ["train", "val"] + (["test"] if args.final_test else [])
-    frames = {}
     if args.mock:
         from tests.mock_data import make_mock_v2
         print(f"*** {MOCK_BANNER} ***")
-        for i, s in enumerate(splits):
-            frames[s] = (make_mock_v2(3000, seed=10 + i, imputed=False, banner=False),
-                         make_mock_v2(3000, seed=10 + i, imputed=True, banner=False))
+        def iter_frames():
+            for i, split in enumerate(splits):
+                yield (split, make_mock_v2(3000, seed=10+i, imputed=False, banner=False),
+                       make_mock_v2(3000, seed=10+i, imputed=True, banner=False))
         md += ["## File integrity", "", "MOCK run: MANIFEST check skipped.", ""]
     else:
         d = data_dir(args.data_dir)
@@ -201,24 +201,26 @@ def main(argv=None):
         md += ["## File integrity (SHA-256 vs MANIFEST.json)", "",
                md_table([[r["file"], r.get("sha256_prefix"), r["status"]] for r in man],
                         ["file", "sha256 (first 16)", "status"]), ""]
-        for s in splits:
-            ft = s == "test"
-            raw = read_parquet(split_path(d, s, imputed=False, final_test=ft), final_test=ft)
-            imp = read_parquet(split_path(d, s, imputed=True, final_test=ft), final_test=ft)
-            frames[s] = (raw, imp)
+        def iter_frames():
+            for split in splits:
+                final = split == "test"
+                yield (split, read_parquet(split_path(d, split, imputed=False, final_test=final), final_test=final),
+                       read_parquet(split_path(d, split, imputed=True, final_test=final), final_test=final))
     res["splits"] = {}
-    for s, (raw, imp) in frames.items():
-        o, m = split_section(s, raw, imp, cfg, k)
-        res["splits"][s] = o
-        md += m
+    for split, raw, imp in iter_frames():
+        section, markdown = split_section(split, raw, imp, cfg, k)
+        res["splits"][split] = section
+        md += markdown
+        if split == "train":
+            tr = imp
+        del raw, imp
 
     # scope, cells, rates: TRAIN only (val/test would be the same picture)
-    tr = frames["train"][1]
     scoped, rep = apply_scope(tr, cfg)
     res["scope"] = {**rep, "steps": [{kk: (cnt(v, k) if kk.startswith("n_") else v) for kk, v in st_.items()}
                                      for st_ in rep["steps"]]}
     md += ["## Training scope (train split)", "",
-           f"Scope `{rep['scope']}`: {rep['n_in_scope']:,} of {rep['n_input']:,} rows in scope "
+           f"Scope `{rep['scope']}`: {cnt(rep['n_in_scope'], k)} of {cnt(rep['n_input'], k)} rows in scope "
            f"({rep['in_scope_share']:.2%}).", "",
            md_table([[s["rule"], cnt(s["n_excluded"], k), cnt(s["n_excluded_women"], k), cnt(s["n_excluded_men"], k)]
                      for s in rep["steps"]],

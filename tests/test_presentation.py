@@ -312,3 +312,31 @@ def test_requested_retained_coverage_is_explicit_and_suppressed():
     assert report['n_requested'] == 105 and report['n_retained'] == 50
     rare = next(x for x in report['condition_cells'] if x['condition_cell'] == '1')
     assert rare['n_requested'] is None and rare['n_retained'] is None and rare['retained_share'] is None
+
+
+def test_dae_inference_batches_match_single_batch_and_preserve_glucose(tmp_path):
+    import joblib
+    import torch
+    from dae_impute import DenoisingAutoencoder, impute_dae
+    frame = make_mock_v2(100, imputed=False)
+    columns = ['waist_cm', 'hip_cm']
+    stats = {'cont_medians': {c: 80. for c in columns}, 'cont_stds': {c: 10. for c in columns},
+             'cat_maps': {}, 'cat_modes': {}}
+    torch.manual_seed(42)
+    model = DenoisingAutoencoder(2, [8, 4])
+    torch.save({'input_dim': 2, 'hidden_dims': [8, 4], 'model_state_dict': model.state_dict(),
+                'cont_cols': columns, 'cat_cols': [], 'impute_cols': columns}, tmp_path/'weights.pt')
+    joblib.dump(stats, tmp_path/'stats.pkl')
+    a = impute_dae(frame, str(tmp_path/'weights.pt'), str(tmp_path/'stats.pkl'), batch_rows=7)
+    b = impute_dae(frame, str(tmp_path/'weights.pt'), str(tmp_path/'stats.pkl'), batch_rows=1000)
+    assert np.allclose(a[columns], b[columns], equal_nan=True)
+    assert a['glucose_raw'].equals(frame['glucose_raw'])
+
+
+def test_sampling_batches_respect_bounds_and_report_clipping(mock_model_dir):
+    from models.sampling import CVAEBundle
+    bundle = CVAEBundle.load(str(mock_model_dir/'cvae_weights.pt'))
+    result = bundle.sample(np.zeros((100, len(bundle.spec.cond_names)), dtype=int), np.zeros(100, dtype=int), batch_rows=13)
+    assert len(result) == 100 and np.isfinite(result['glucose_raw']).all()
+    assert result['age'].between(15, 24).all()
+    assert 0 <= result.attrs['sampling']['clipped_share'] <= 1

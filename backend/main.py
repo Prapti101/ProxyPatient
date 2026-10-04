@@ -178,12 +178,13 @@ def _response_fields(condition, df, stat):
     effective = condition.model_dump(exclude_none=True)
     if "sex" in effective and "age_band" in effective:
         effective["age_band"] = age_band_label(load_config(), effective["sex"], parse_age_band(load_config(), effective["age_band"]))
-    diagnostics = df.attrs["sampling"]
+    from models.privacy import safe_public_output
+    diagnostics = safe_public_output(df.attrs["sampling"])
     return dict(condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
                 model_fingerprint=df.attrs["fingerprint"], demo=df.attrs["demo"],
                 banner="MOCK DEMO — not NFHS-5" if df.attrs["demo"] else None,
                 sampling_diagnostics={**diagnostics, "rejection_rate": diagnostics["first_pass_inconsistent_share"],
-                                      "clipped_share": 1-diagnostics["consistent_without_clipping_share"]})
+                                      "clipped_share": diagnostics["clipped_share"]})
 
 
 @app.post("/generate", response_model=GenerateResponse, tags=["Scenarios"])

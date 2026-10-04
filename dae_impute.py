@@ -65,7 +65,7 @@ def _denorm_cont(norm_vals, col, fit_stats):
 
 def impute_dae(df: pd.DataFrame,
                weights_path: str = None,
-               fit_stats_path: str = None) -> pd.DataFrame:
+               fit_stats_path: str = None, batch_rows: int = 4096) -> pd.DataFrame:
     """
     Load DAE v2 weights and impute ONLY the allowed sporadic-missing covariates.
     NEVER imputes: glucose, outcome, bmi, weight_kg, height_cm, BP, hypertension.
@@ -97,9 +97,17 @@ def impute_dae(df: pd.DataFrame,
     impute_cols = ck["impute_cols"]
     n_cont      = len(cont_cols)
 
-    X = _normalise(df, cont_cols, cat_cols, fit_stats)
+    if batch_rows <= 0:
+        raise ValueError("batch_rows must be positive")
+    X_hat = np.empty((len(df), len(cont_cols)+len(cat_cols)), dtype=np.float32)
     with torch.no_grad():
-        X_hat = model(X).numpy()
+        for start in range(0, len(df), batch_rows):
+            stop = min(start+batch_rows, len(df))
+            X = _normalise(df.iloc[start:stop], cont_cols, cat_cols, fit_stats)
+            prediction = model(X).numpy()
+            if not np.isfinite(prediction).all():
+                raise ValueError("Non-finite DAE predictions; imputation refused")
+            X_hat[start:stop] = prediction
 
     df_out = df.copy()
 

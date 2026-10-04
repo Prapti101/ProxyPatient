@@ -170,11 +170,19 @@ def train_dae(X_train, input_dim, fit_stats, bmi_measured_train):
 
 # ── Impute ────────────────────────────────────────────────────────────────────
 
-def impute(df, model, fit_stats, bmi_measured_col="bmi_measured"):
+def impute(df, model, fit_stats, bmi_measured_col="bmi_measured", batch_rows=4096):
     model.eval()
-    X, _ = normalise(df, fit_stats["cont_cols"], fit_stats["cat_cols"], fit_stats)
+    if batch_rows <= 0:
+        raise ValueError("batch_rows must be positive")
+    X_hat = np.empty((len(df), len(fit_stats["cont_cols"])+len(fit_stats["cat_cols"])), dtype=np.float32)
     with torch.no_grad():
-        X_hat = model(X).numpy()
+        for start in range(0, len(df), batch_rows):
+            stop = min(start+batch_rows, len(df))
+            X, _ = normalise(df.iloc[start:stop], fit_stats["cont_cols"], fit_stats["cat_cols"], fit_stats)
+            prediction = model(X).numpy()
+            if not np.isfinite(prediction).all():
+                raise ValueError("Non-finite DAE prediction")
+            X_hat[start:stop] = prediction
 
     df_out = df.copy()
     n_cont = len(fit_stats["cont_cols"])
