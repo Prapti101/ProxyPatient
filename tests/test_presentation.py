@@ -198,3 +198,29 @@ def test_id_only_membership_cannot_read_outcomes(tmp_path):
     from models.common import read_parquet, LockedTestError
     with pytest.raises(LockedTestError, match='ID|row_id'):
         read_parquet(str(tmp_path/'test.parquet'), columns=['glucose_raw'], membership_only=True)
+
+
+def test_manifest_errors_stop_before_reading_data(tmp_path):
+    from models.step0_checks import main
+    with pytest.raises(ValueError, match='Manifest integrity'):
+        main(['--data-dir', str(tmp_path), '--out', str(tmp_path/'report.md')])
+    assert not (tmp_path/'report.md').exists()
+
+
+def test_final_run_requires_explicit_acknowledgement():
+    from models.run_all import parse_args
+    with pytest.raises(SystemExit):
+        parse_args(['--mock', '--final-test'])
+
+
+def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path):
+    import json
+    from models.run_all import main
+    from models.privacy import small_count_paths
+    result = main(['--mock', '--quick', '--out-dir', str(tmp_path)])
+    assert result['stages'] == ['step0', 'dae_benchmark', 'train_cvae', 'train_baselines', 'eval_dev', 'package']
+    assert (tmp_path/'private_outputs/cvae_weights.pt').exists()
+    assert not list(tmp_path.rglob('*.parquet')) and not list(tmp_path.rglob('*.csv'))
+    for path in (tmp_path/'safe_outputs').glob('*.json'):
+        assert not small_count_paths(json.loads(path.read_text())), path.name
+    assert json.loads((tmp_path/'safe_outputs/manifest.json').read_text())['mock'] is True

@@ -54,7 +54,8 @@ def check_manifest(ddir, final_test):
     with open(path, encoding="utf-8") as f:
         expected = manifest_hashes(json.load(f))
     rows = []
-    names = sorted(set(expected) | {f for f in os.listdir(ddir) if f.endswith((".parquet", ".pkl", ".pt"))})
+    required = {f"{prefix}{split}_v2.parquet" for prefix in ("", "dae_imputed_") for split in ("train", "val")}
+    names = sorted(required | set(expected) | {f for f in os.listdir(ddir) if f.endswith((".parquet", ".pkl", ".pt"))})
     for name in names:
         fp = os.path.join(ddir, name)
         if "test" in name.lower() and not final_test:
@@ -193,6 +194,9 @@ def main(argv=None):
     else:
         d = data_dir(args.data_dir)
         man = check_manifest(d, args.final_test)
+        failures = [r for r in man if r["status"] != "OK" and not r["status"].startswith("LOCKED")]
+        if failures:
+            raise ValueError("Manifest integrity failed: " + "; ".join(f"{r['file']}: {r['status']}" for r in failures))
         res["manifest"] = man
         md += ["## File integrity (SHA-256 vs MANIFEST.json)", "",
                md_table([[r["file"], r.get("sha256_prefix"), r["status"]] for r in man],
