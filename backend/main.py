@@ -31,9 +31,13 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# ── Swap these two lines when P2 delivers the real CVAE ──────────────────────
-from backend.generator_stub   import generate        # STUB: replace with real
-# from backend.generator       import generate        # REAL: P2's CVAE
+# ── Generator: stub by default; P2's CVAE when env var PP_GENERATOR=real ─────
+if os.environ.get("PP_GENERATOR", "").lower() == "real":
+    from backend.generator      import generate      # REAL: P2's CVAE
+    MODEL_USED = "CVAE"
+else:
+    from backend.generator_stub import generate      # STUB
+    MODEL_USED = "CVAE-stub (set PP_GENERATOR=real for P2 model)"
 
 # ── Swap these two lines when P3 delivers the real outcome_stat ──────────────
 from backend.outcome_stat_stub import outcome_stat   # STUB: replace with real
@@ -223,7 +227,7 @@ def generate_cohort(req: GenerateRequest):
     return GenerateResponse(
         condition    = req.condition,
         outcome_stat = OutcomeStat(**stat),
-        model_used   = "CVAE-stub (replace with P2 model)"
+        model_used   = MODEL_USED
     )
 
 

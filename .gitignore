@@ -70,3 +70,22 @@ HANDOFF_P1_v2.md
 _audit_f1_bp.py
 _audit_f2_bmi.py
 _save_imputed.py
+
+# ── P2: wildcard data/weights guards (public repo) ───────────────────────────
+# Respondent-level data in ANY folder
+*.parquet
+*.csv
+*.dta
+*.DTA
+*.sav
+*.zip
+*.feather
+processed/*.parquet
+processed/*.pkl
+processed/MANIFEST.json
+# Model weights are not committed by default (public repo)
+models/*.pt
+models/*.pkl
+*.pt.tmp
+# Generated synthetic samples, baseline pickles, scratch outputs
+outputs/
