@@ -89,3 +89,11 @@ models/*.pkl
 *.pt.tmp
 # Generated synthetic samples, baseline pickles, scratch outputs
 outputs/
+
+# Artifacts remain private at any custom output path.
+*.pt
+*.pkl
+**/private_outputs/
+**/private_outputs-previous-*/
+**/working/
+**/previous-working-*/

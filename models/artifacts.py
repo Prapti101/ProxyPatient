@@ -35,6 +35,22 @@ def validate_checkpoint(checkpoint, cfg=None):
     if spec.use_state and (not spec.state_codes or len(spec.state_codes) != spec.n_states
                           or len(set(spec.state_codes)) != spec.n_states):
         raise RuntimeError('Invalid checkpoint state mapping')
-    if checkpoint.get('cfg') != inference_cfg(cfg) or checkpoint.get('fingerprint') != fingerprint(cfg, spec):
+    if checkpoint.get('cfg') != inference_cfg(cfg) or checkpoint.get('config_fingerprint') != fingerprint(cfg, spec):
         raise RuntimeError('Checkpoint configuration fingerprint mismatch; retrain with current configuration')
+    if checkpoint.get('fingerprint') != model_fingerprint(checkpoint):
+        raise RuntimeError('Model fingerprint does not match fitted parameters and metadata')
     return checkpoint['fingerprint']
+
+
+def model_fingerprint(checkpoint):
+    """Identity includes fitted parameters, preprocessing, configuration and mode."""
+    digest = hashlib.sha256()
+    metadata = {key: checkpoint[key] for key in ('preproc', 'cfg', 'hparams', 'is_mock')}
+    digest.update(json.dumps(metadata, sort_keys=True, allow_nan=False).encode())
+    for name, tensor in sorted(checkpoint['state_dict'].items()):
+        array = tensor.detach().cpu().contiguous().numpy()
+        digest.update(name.encode())
+        digest.update(str(array.dtype).encode())
+        digest.update(str(array.shape).encode())
+        digest.update(array.tobytes())
+    return digest.hexdigest()

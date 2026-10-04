@@ -34,7 +34,7 @@ def set_seed(seed: int):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
 
 
-from models.artifacts import inference_cfg, fingerprint
+from models.artifacts import inference_cfg, fingerprint, model_fingerprint
 
 
 def load_frames(args, cfg):
@@ -172,7 +172,8 @@ def train(args, cfg):
             "hparams": model.hparams, "preproc": json.loads(json.dumps(_pre_dict(pre))),
             "cfg": inference_cfg(cfg), "variant": args.variant, "glucose_head": args.glucose_head,
             "mock": bool(args.mock), "is_mock": bool(args.mock),
-            "fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
+            "config_fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
+    ckpt["fingerprint"] = model_fingerprint(ckpt)
     weights = args.weights_out or paths["weights"]
     torch.save(ckpt, weights)
     pre.to_json(paths["preproc"])
@@ -206,14 +207,14 @@ def model_card(cfg, model, pre, log, args) -> dict:
                  "test_split": "locked; not used for training or model selection",
                  "scope": log["scope_train"]["scope"], "n_train": log["n_train"], "n_val": log["n_val"]},
         "conditions": pre.spec.cond_names + (["state"] if pre.spec.use_state else []),
-        "generated": pre.spec.cont_cols + pre.spec.cat_cols + ["weight_kg (derived)"],
+        "generated": pre.spec.cont_cols + pre.spec.cat_cols + (["weight_kg (derived)"] if pre.spec.weight_derived else []),
         "architecture": model.hparams,
         "training": {"best_val_elbo": log.get("best_val_elbo"), "epochs_run": len(log["epochs"]),
                      "seconds": log.get("train_seconds"), "device": log["device"], "seed": args.seed},
         "survey_weights": "not used in training (unweighted model)",
         "limitations": [
             "Trained only on respondents with glucose, measured BMI and known hypertension status.",
-            "Unspecified conditions are filled from independent marginals.",
+            "Full profiles required in serving; independent marginal fill is explicit demo/development only.",
             "What-if = how the synthetic cohort shifts, not a causal intervention.",
             "No external validation dataset (NMB-2017 has no data file).",
         ],

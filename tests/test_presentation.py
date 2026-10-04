@@ -366,3 +366,30 @@ def test_config_precedence_and_condition_order(tmp_path):
     cfg['conditioning_variables'].append('glucose_raw')
     with pytest.raises(ValueError, match='conditioning_variables'):
         build_spec(cfg)
+
+
+def test_model_identity_changes_when_fitted_parameters_change(mock_model_dir):
+    import torch
+    from models.artifacts import validate_checkpoint, model_fingerprint
+    checkpoint = torch.load(mock_model_dir/'cvae_weights.pt', weights_only=False)
+    original = checkpoint['fingerprint']
+    first = next(iter(checkpoint['state_dict']))
+    checkpoint['state_dict'][first] = checkpoint['state_dict'][first] + .1
+    assert model_fingerprint(checkpoint) != original
+    with pytest.raises(RuntimeError, match='Model fingerprint'):
+        validate_checkpoint(checkpoint)
+
+
+def test_package_rejects_mock_as_real_and_preserves_old_outputs(tmp_path, mock_model_dir):
+    import argparse
+    import shutil
+    from models.run_all import package
+    (tmp_path/'working').mkdir()
+    shutil.copytree(mock_model_dir, tmp_path/'working/model')
+    old = tmp_path/'private_outputs'
+    old.mkdir()
+    (old/'user-file.md').write_text('preserve')
+    args = argparse.Namespace(out_dir=str(tmp_path), mock=False, skipped_stages=[])
+    with pytest.raises(ValueError, match='provenance'):
+        package(args)
+    assert (old/'user-file.md').read_text() == 'preserve'

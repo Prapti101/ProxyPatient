@@ -54,9 +54,18 @@ def sanity(args):
 def package(args):
     root = Path(args.out_dir)
     work, safe, private = root/'working', root/'safe_outputs', root/'private_outputs'
-    safe.mkdir(parents=True, exist_ok=True)
-    private.mkdir(parents=True, exist_ok=True)
     model = work/'model'
+    from models.artifacts import validate_checkpoint
+    from models.sampling import CVAEBundle
+    checkpoint = CVAEBundle.load(str(model/'cvae_weights.pt'))
+    validate_checkpoint(checkpoint.ckpt)
+    if checkpoint.ckpt['is_mock'] != bool(args.mock):
+        raise ValueError('Packaging provenance does not match checkpoint MOCK mode')
+    # Preserve previous products, but never mix them into a new package.
+    for directory in (safe, private):
+        if directory.exists() and any(directory.iterdir()):
+            directory.rename(root/(directory.name+'-previous-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f')))
+        directory.mkdir(parents=True, exist_ok=True)
     for name in ('cvae_weights.pt', 'cvae_preproc.json', 'condition_marginals.json', 'supported_profiles.json'):
         shutil.copy2(model/name, private/name)
     if (work/'baselines').exists():
@@ -83,7 +92,13 @@ def package(args):
     card = json.loads((safe/'model_card.json').read_text())
     card['evaluation'] = json.loads((safe/'model_comparison_dev.json').read_text())
     card['status'] = 'MOCK demonstration, not NFHS-5' if args.mock else 'NFHS-5 TRAIN/VAL run; no untouched-test claim'
+    card['model_fingerprint'] = checkpoint.ckpt['fingerprint']
+    card['config_fingerprint'] = checkpoint.ckpt['config_fingerprint']
     write_json(card, str(safe/'model_card.json'))
+    if not args.mock:
+        from models.common import MODELS_DIR
+        # Only the real private-holder run updates the tracked aggregate template.
+        write_json(card, str(Path(MODELS_DIR)/'model_card.json'))
     for entry in manifest:
         entry['sha256'] = sha256_file(str(safe/entry['file']))
     write_json({'mock': args.mock, 'files': manifest, 'skipped_stages': args.skipped_stages}, str(safe/'manifest.json'))
