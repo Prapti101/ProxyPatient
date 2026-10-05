@@ -16,6 +16,7 @@ import copy
 import json
 import os
 import random
+import resource
 import time
 from datetime import datetime, timezone
 
@@ -26,30 +27,29 @@ from models.common import (MOCK_BANNER, MODELS_DIR, data_dir, load_config, read_
                            split_path, write_json)
 from models.cvae import build_model
 from models.data import (DROP_COLUMNS, apply_scope, build_spec, condition_marginals,
-                         default_paths, fit_preproc, make_arrays, raw_generated)
+                         default_paths, fit_preproc, make_arrays, raw_generated, require_sex_support, supported_profiles)
 
 
 def set_seed(seed: int):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
 
 
-def inference_cfg(cfg: dict) -> dict:
-    """Config subset stored inside the checkpoint so inference is self-contained."""
-    return {
-        "age_bands": cfg["age_bands"],
-        "age_band_labels": {"women": cfg["whatif_options"]["age_band"]["women_options"],
-                            "men": cfg["whatif_options"]["age_band"]["men_options"]},
-        "bmi_bands": cfg["bmi"]["bands"],
-        "threshold_mg_dl": cfg["outcome"]["threshold_mg_dl"],
-        "glucose_clip_mg_dl": cfg.get("model", {}).get("glucose_clip_mg_dl", [20, 600]),
-    }
+from models.artifacts import inference_cfg, fingerprint, model_fingerprint
 
 
 def load_frames(args, cfg):
     if args.mock:
         from tests.mock_data import make_mock_v2
         n = args.max_rows or 6000
-        return make_mock_v2(n, seed=1), make_mock_v2(max(n // 4, 500), seed=2, banner=False)
+        train = make_mock_v2(n, seed=1)
+        if args.demo_profiles:
+            # Construct MOCK joint cells, never copy survey rows or save samples.
+            for group, (sex, bmi, band) in enumerate([(0, 17., "underweight"), (0, 22., "normal"), (1, 32., "obese")]):
+                mask = np.arange(n) % 3 == group
+                train.loc[mask, ["sex", "age", "age_band", "residence", "wealth_quintile", "bmi", "bmi_band",
+                                 "bmi_measured", "hypertension", "any_tobacco", "alcohol"]] = [sex, 30, "25-34", "rural", 3, bmi, band, 1, 0, 0, 0]
+                train.loc[mask, "weight_kg"] = bmi * (train.loc[mask, "height_cm"] / 100)**2
+        return train, make_mock_v2(max(n // 4, 500), seed=2, banner=False)
     d = data_dir(args.data_dir)
     tr = read_parquet(split_path(d, "train"))
     va = read_parquet(split_path(d, "val"))
@@ -83,6 +83,19 @@ def evaluate(model, arr, bs, device, use_state):
 
 
 def train(args, cfg):
+    from models.run_status import resolve_run_type, run_fields
+    args.run_type = resolve_run_type(args.mock, args.run_type == "quick")
+    cfg = copy.deepcopy(cfg)
+    if args.scope is not None:
+        cfg.setdefault("model", {})["scope"] = args.scope
+    args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
+    args.variant = cfg.get("model", {}).get("variant", "mlp") if args.variant is None else args.variant
+    args.glucose_head = cfg.get("model", {}).get("glucose_head", "mixture") if args.glucose_head is None else args.glucose_head
+    for value in (args.epochs, args.patience, args.batch_size, args.max_rows, args.latent_dim):
+        if value is not None and value <= 0:
+            raise ValueError("Explicit training sizes/epochs must be positive")
+    if args.demo_profiles and not args.mock:
+        raise ValueError("--demo-profiles is MOCK-only")
     set_seed(args.seed)
     mcfg = dict(cfg.get("model", {}))
     for k in ("latent_dim",):
@@ -94,15 +107,28 @@ def train(args, cfg):
         print(f"*** {MOCK_BANNER} *** (smoke run; outputs are NOT a shipped model)")
 
     tr_raw, va_raw = load_frames(args, cfg)
-    if args.max_rows and not args.mock and len(tr_raw) > args.max_rows:
+    if args.run_type != "quick" and args.max_rows and not args.mock and len(tr_raw) > args.max_rows:
         tr_raw = tr_raw.sample(args.max_rows, random_state=args.seed)
     tr, scope_tr = apply_scope(tr_raw, cfg, args.scope)
     va, scope_va = apply_scope(va_raw, cfg, args.scope)
-    spec = build_spec(cfg, use_state=not args.no_state, generate_bp=args.generate_bp)
+    spec = build_spec(cfg, use_state=False if args.no_state else None, generate_bp=args.generate_bp, training_df=tr)
+    if args.run_type == "quick":
+        from models.quick import stratified_train_sample
+        eligibility = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+        require_sex_support(eligibility, cfg, mock=args.mock, quick=True)
+        tr = stratified_train_sample(tr.loc[eligibility.retained_mask],
+             args.max_rows or int(cfg["quick"]["cvae_train_rows"]),
+             30 if args.mock else int(cfg["quick"]["min_rows_per_sex"]), args.seed,
+             float(cfg["outcome"]["threshold_mg_dl"]))
     pre = fit_preproc(raw_generated(tr, spec), spec)
+    pre.meta.update(run_fields(args.run_type))
     a_tr, a_va = make_arrays(tr, pre), make_arrays(va, pre)
-    print(f"train rows in scope: {len(a_tr.cont):,} (dropped incomplete: {a_tr.n_dropped:,}); "
-          f"val: {len(a_va.cont):,} (dropped {a_va.n_dropped:,})")
+    require_sex_support(a_tr, cfg, mock=args.mock, quick=args.run_type == "quick")
+    if len(a_va.cont) < 30:
+        raise ValueError("Insufficient complete validation rows")
+    from models.privacy import suppress_count, safe_public_output
+    print(f"Encoded train rows: {suppress_count(len(a_tr.cont))}; excluded incomplete: {suppress_count(a_tr.n_dropped)}; "
+          f"validation rows: {suppress_count(len(a_va.cont))}; excluded: {suppress_count(a_va.n_dropped)}")
 
     model = build_model(spec, mcfg, variant=args.variant, glucose_head=args.glucose_head).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=float(mcfg.get("lr", 1e-3)))
@@ -113,10 +139,12 @@ def train(args, cfg):
     patience = int(args.patience or mcfg.get("early_stopping_patience", 8))
 
     log = {"started": datetime.now(timezone.utc).isoformat(), "mock": bool(args.mock),
+           "min_rows_per_sex": 30 if args.mock else int(cfg["quick" if args.run_type == "quick" else "model"]["min_rows_per_sex"]),
            "device": device, "variant": args.variant, "glucose_head": args.glucose_head,
            "n_train": len(a_tr.cont), "n_val": len(a_va.cont),
            "dropped_incomplete": {"train": a_tr.n_dropped, "val": a_va.n_dropped},
-           "scope_train": scope_tr, "scope_val": scope_va, "epochs": []}
+           "scope_train": scope_tr, "scope_val": scope_va,
+           "encoded_per_sex": a_tr.support, "encoding_exclusions": a_tr.exclusions, "epochs": []}
     best, best_state, bad_epochs = -np.inf, None, 0
     rng = np.random.default_rng(args.seed)
     t0 = time.time()
@@ -151,17 +179,29 @@ def train(args, cfg):
         best_state = model.state_dict()
     model.load_state_dict(best_state)
     log["best_val_elbo"] = round(best, 5) if np.isfinite(best) else None
+    log["peak_memory_mib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024, 2)
     log["train_seconds"] = round(time.time() - t0, 1)
 
     os.makedirs(args.out_dir, exist_ok=True)
     ckpt = {"state_dict": {k: v.cpu() for k, v in model.state_dict().items()},
             "hparams": model.hparams, "preproc": json.loads(json.dumps(_pre_dict(pre))),
             "cfg": inference_cfg(cfg), "variant": args.variant, "glucose_head": args.glucose_head,
-            "mock": bool(args.mock), "created": datetime.now(timezone.utc).isoformat()}
+            "mock": bool(args.mock), "is_mock": bool(args.mock), "scope": scope_tr["scope"],
+            "run_type": args.run_type, "config_fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
+    ckpt["fingerprint"] = model_fingerprint(ckpt)
     weights = args.weights_out or paths["weights"]
     torch.save(ckpt, weights)
     pre.to_json(paths["preproc"])
-    write_json(condition_marginals(tr, spec, cfg), paths["marginals"])
+    marginals = condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg)
+    marginals.update(run_fields(args.run_type))
+    marginals["_meta"]["fingerprint"] = ckpt["fingerprint"]
+    write_json(marginals, paths["marginals"])
+    profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec, cfg=cfg)
+    profiles.update(run_fields(args.run_type))
+    profiles["fingerprint"] = ckpt["fingerprint"]
+    write_json(profiles, os.path.join(args.out_dir, "supported_profiles.json"))
+    log.update(run_fields(args.run_type))
+    log = safe_public_output(log)
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
     print(f"saved weights -> {weights} (git-ignored; do not commit)")
@@ -174,7 +214,9 @@ def _pre_dict(pre):
 
 
 def model_card(cfg, model, pre, log, args) -> dict:
+    from models.run_status import run_fields
     return {
+        **run_fields(args.run_type),
         "model": "ProxyPatient CVAE" + ("" if args.variant == "mlp" else f" ({args.variant} variant)"),
         "status": "MOCK SMOKE RUN - not a real model" if args.mock else "trained on NFHS-5 v2 train split",
         "intended_use": "Generate SYNTHETIC cohorts for population-level health awareness. "
@@ -185,14 +227,14 @@ def model_card(cfg, model, pre, log, args) -> dict:
                  "test_split": "locked; not used for training or model selection",
                  "scope": log["scope_train"]["scope"], "n_train": log["n_train"], "n_val": log["n_val"]},
         "conditions": pre.spec.cond_names + (["state"] if pre.spec.use_state else []),
-        "generated": pre.spec.cont_cols + pre.spec.cat_cols + ["weight_kg (derived)"],
+        "generated": pre.spec.cont_cols + pre.spec.cat_cols + (["weight_kg (derived)"] if pre.spec.weight_derived else []),
         "architecture": model.hparams,
         "training": {"best_val_elbo": log.get("best_val_elbo"), "epochs_run": len(log["epochs"]),
                      "seconds": log.get("train_seconds"), "device": log["device"], "seed": args.seed},
         "survey_weights": "not used in training (unweighted model)",
         "limitations": [
             "Trained only on respondents with glucose, measured BMI and known hypertension status.",
-            "Unspecified conditions are filled from independent marginals.",
+            "Full profiles required in serving; independent marginal fill is explicit demo/development only.",
             "What-if = how the synthetic cohort shifts, not a causal intervention.",
             "No external validation dataset (NMB-2017 has no data file).",
         ],
@@ -211,13 +253,15 @@ def parse_args(argv=None):
     p.add_argument("--latent-dim", dest="latent_dim", type=int)
     p.add_argument("--max-rows", type=int, help="subsample train rows (debugging)")
     p.add_argument("--scope", choices=["complete_conditions", "glucose_known"])
-    p.add_argument("--variant", choices=["mlp", "gru", "cnn"], default="mlp")
-    p.add_argument("--glucose-head", choices=["mixture", "gaussian"], default="mixture")
-    p.add_argument("--no-state", action="store_true", help="disable the state embedding")
+    p.add_argument("--variant", choices=["mlp", "gru", "cnn"], default=None)
+    p.add_argument("--glucose-head", choices=["mixture", "gaussian"], default=None)
+    p.add_argument("--no-state", action="store_true", default=None, help="disable the state embedding")
     p.add_argument("--generate-bp", action="store_true", default=None)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
+    p.add_argument("--demo-profiles", action="store_true", help="construct supported MOCK demo profile cells")
+    p.add_argument("--run-type", choices=["quick", "full"], default="full")
     p.add_argument("--config")
     return p.parse_args(argv)
 

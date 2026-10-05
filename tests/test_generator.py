@@ -24,9 +24,8 @@ def gen(real_generator_env):
 
 def test_signature_matches_stub():
     import backend.generator as g
-    import backend.generator_stub as s
     real = list(inspect.signature(g.generate).parameters)[:3]
-    assert real == list(inspect.signature(s.generate).parameters)[:3] == ["condition", "n", "seed"]
+    assert real == ["condition", "n", "seed"]
     assert inspect.signature(g.generate).parameters["n"].default == 1000
     assert inspect.signature(g.generate).parameters["seed"].default == 42
 
@@ -139,4 +138,4 @@ def test_main_switch(real_generator_env, monkeypatch):
     finally:
         monkeypatch.delenv("PP_GENERATOR")
         importlib.reload(m)
-        assert m.MODEL_USED.startswith("CVAE-stub")
+        assert m.MODEL_USED == "CVAE"

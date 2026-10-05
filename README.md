@@ -1,251 +1,95 @@
-# ProxyPatient 🇮🇳
-### Synthetic Patient Scenario Generation for Diabetes Risk Awareness
+# ProxyPatient
 
-> **Strictly Generative AI. NOT a diagnostic tool. NOT agentic.**
-> All results are labelled "elevated glucose (proxy)" — never "diabetes diagnosis".
+Synthetic Scenario Exploration for Elevated Glucose (Proxy)
 
----
+ProxyPatient generates new synthetic cohorts with a conditional VAE trained on Indian NFHS-5 survey data. The displayed outcome is **elevated glucose (proxy)**: generated random capillary glucose at or above the threshold in `config.yaml` (currently 200 mg/dL). Scenario differences are descriptive, not causal effects. This is not a diagnosis, individual prediction, or treatment recommendation.
 
-## Project Overview
+## What we present / known limitations
 
-ProxyPatient learns patterns from the **NFHS-5 India (2019-21)** national health survey,
-generates synthetic patient cohorts under **"what-if" conditions**, and computes
-outcome statistics for health awareness and research purposes.
+The presentation slice runs an explicitly labelled MOCK checkpoint, full baseline profiles, what-if changes, decoder generation, and computed outcome summaries. Every demo response carries a banner; mock numbers are not NFHS-5 results. Real mode refuses mock checkpoints, missing artifacts, and incompatible model/configuration fingerprints.
 
-**It is NOT:**
-- A clinical diagnosis tool
-- An individual prediction system
-- An agentic system (no LangChain, no AutoGen, no tool-calling)
+The fitted model scope is complete encoded TRAIN respondents with measured BMI, known blood-pressure status and known glucose, including both sexes. Modeling is unweighted; neither the fitted model nor its synthetic rate is a survey population estimate. Height and derived weight are optional if per-sex measurement support is inadequate. Historical reference aggregates have a broader all-known-glucose scope and are not used as full scenario presets.
 
-**It IS:**
-- A strictly generative AI pipeline (CVAE + baselines)
-- A population-level scenario comparison tool
-- An SDG-3 health awareness research project
+The Wilson Monte Carlo interval describes variation in a generated cohort conditional on a fixed fitted model. It does not measure model or survey uncertainty. Rejection and clipping diagnostics are visible. Fidelity, tail behavior, disclosure risk, the clinical meaning of units, and scenario support require private real-data validation. The validation panel reads measured packaged TRAIN/VAL reports; private-data quality is unverified. P3's schemas/phrases are reconciled, and the parser remains rule-based and demo-only.
 
----
 
-## Team Roles
-
-| Member | Role | Key Deliverables |
+| run_type | Banner | Meaning |
 |---|---|---|
-| **P1 (Prapti)** | Data & Backend Lead | Dataset, preprocessing, DAE, FastAPI |
-| **P2** | Model Lead | CVAE, CTGAN, TVAE baselines |
-| **P3** | Validation & NLP Lead | Fidelity checks, outcome_stat, BERT parser |
-| **P4** | Frontend Lead | React UI, typed service layer |
+| mock | DEMO (mock data) | Constructed mock software demonstration; not NFHS-5 evidence |
+| quick | PRELIMINARY (quick run) | Reduced, untuned private TRAIN/VAL run; indicative only |
+| full | FULL RUN | Configured full training budget; scientific validation still required |
 
----
+Every JSON response carries run_type, preliminary, demo and status_banner; no compatible checkpoint means unavailable readiness. Real mode rejects mock/missing-run-type checkpoints; explicit demo mode accepts only mock. Quick reserves eligible rows per sex and stratifies by outcome: 2,000 complete rows per sex versus 5,000 for full. Configured quick defaults are 100,000 CVAE rows/six epochs, 20,000 baseline rows/15 epochs and 10,000 requested evaluation rows. TVAE/CTGAN are included unless explicitly skipped; GRU/CNN ablations are excluded. timings.json records measured stage seconds/peak RSS.
 
-## Project Pipeline (v2 — current)
+The preset demo builder creates three supported full mock profiles. The pipeline mock benchmark package independently demonstrates measured report ingestion; it need not provide three supported profiles. Never attach a different fitted model's reports to a preset demo. Follow the runbook for both flows.
 
-```
-NFHS-5 India Dataset + Household Member File (IAPR7EDT)
-       ↓
-  Preprocessing v2 (preprocess_v2.py)
-  [BP variables, men's BMI from household file, bmi_measured flag]
-       ↓
-  Stratified Split + Aggregates v2 (split_and_aggregate_v2.py)
-  [SHA-256 verified: same row membership as v1]
-       ↓
-  Denoising Autoencoder v2 (train_dae_v2.py)
-  [Sporadic covariates only. BMI/BP not imputed.]
-       ↓
-  CVAE Generative Model ← P2 builds this
-       ↓
-  User picks baseline profile + what-if conditions
-       ↓
-  Outcome stat computed from generated cohort ← P3 builds this
-       ↓
-  Fidelity Validation ← P3 builds this
-       ↓
-  Scenario Cards + Comparison UI ← P4 builds this
-```
+## CPU development quickstart
 
----
+Python 3.11 is tested. Install pinned requirements and select CPU PyTorch explicitly:
 
-## Dataset
-
-- **Primary:** NFHS-5 India (2019-21), MoHFW/IIPS, DHS Program
-  - Women: 7,24,115 respondents (15–49)
-  - Men: 1,01,839 respondents (15–54)
-  - **Outcome variable:** `sb74` / `smb74` — random capillary glucose (mg/dL)
-  - **Outcome threshold:** ≥ 200 mg/dL → "elevated glucose (proxy)"
-
-> ⚠️ Raw `.DTA` files and processed `.parquet` splits are **NOT in this repo**.
-> They are shared privately with team members. DHS data cannot be redistributed publicly.
-> See [DHS Program](https://dhsprogram.com) for access.
-
-**FORBIDDEN datasets (never use):**
-- Diabetes 130-US Hospitals
-- Pima Indians
-- UCI Early Stage Diabetes (Sylhet, Bangladesh)
-
----
-
-## Repository Structure
-
-```
-ProxyPatient/
-│
-├── config.yaml                      # Project-wide settings (thresholds, seeds, paths)
-├── preprocess.py                    # Stage 3: Data cleaning pipeline
-├── split_and_aggregate.py           # Stage 4: Stratified split + aggregates
-├── train_dae.py                     # Stage 6: Denoising Autoencoder training
-│
-├── backend/
-│   ├── __init__.py
-│   ├── main.py                      # FastAPI app (7 endpoints)
-│   ├── schemas.py                   # Pydantic request/response models
-│   ├── generator_stub.py            # STUB → P2 replaces with generator.py
-│   └── outcome_stat_stub.py         # STUB → P3 replaces with outcome_stat.py
-│
-├── docs/
-│   ├── schema.json                  # ALL confirmed DHS variable codes + roles
-│   ├── aggregates.json              # Safe population aggregates (n≥30 only)
-│   ├── audit_results.md             # Stage 1: Metadata audit findings
-│   ├── preprocessing_report.md      # Stage 3: Cleaning report
-│   ├── split_report.md              # Stage 4: Split sizes + stratification
-│   └── dae_report.md               # Stage 6: DAE training report
-│
-└── processed/
-    ├── dae_weights.pt               # Trained DAE model weights
-    ├── dae_fit_stats.pkl            # Normalisation stats for inference
-    └── preprocess.pkl               # Fitted StandardScaler + OrdinalEncoder
-```
-
----
-
-## Shared Contracts (Critical — Read Before Coding)
-
-### `generate(condition, n=1000, seed=42) -> pd.DataFrame`
-```python
-# backend/generator.py (P2's CVAE). Enabled with env var PP_GENERATOR=real;
-# without it backend/main.py keeps using backend/generator_stub.py.
-# condition: dict, any subset of sex ("female"/"male" or 0/1), age_band
-#            ("15-24", "25-34", "35-49"/"35-54"; either label is accepted and
-#            the sex-appropriate one is echoed), residence, wealth_quintile,
-#            bmi_band, hypertension (0/1), tobacco (0/1), alcohol (0/1), state (1-36).
-#            Glucose is NEVER a condition (ValueError). Unspecified keys are drawn
-#            from models/condition_marginals.json as independent marginals, so
-#            the UI should send a FULL baseline profile plus the what-if changes.
-# n:         100-10,000.  seed: deterministic per seed.
-# Returns:   n NEW rows sampled from the CVAE decoder, ORIGINAL units: the
-#            conditions, age, bmi, weight_kg, height_cm, waist_cm, hip_cm,
-#            education, bp_ever_checked, glucose_raw (mg/dL),
-#            elevated_glucose_proxy (derived from the generated glucose_raw and
-#            outcome.threshold_mg_dl) and is_synthetic=True.
-#            (This replaces the old v1 text "returns a DataFrame without glucose columns".)
-# Weights:   models/cvae_weights.pt (git-ignored; trained by models/train_cvae.py,
-#            see models/RUN_ON_COLAB.md). Override with PP_CVAE_WEIGHTS.
-```
-
-### `outcome_stat(df, rule) -> dict`
-```python
-# P3 must implement this exact signature in backend/outcome_stat.py
-# df: generated DataFrame
-# rule: {"threshold_mg_dl": 200}
-# Returns: {"rate": float, "ci_low": float, "ci_high": float, "n": int}
-```
-
-### API Endpoints (FastAPI running on port 8000)
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/health` | System health check |
-| GET | `/schema` | Full variable schema |
-| GET | `/profiles` | Baseline reference profiles |
-| POST | `/generate` | Generate cohort + outcome stat |
-| POST | `/compare` | Compare multiple scenarios |
-| GET | `/validation` | P3's validation report |
-| POST | `/parse` | NLP condition parser (P3) |
-
-Interactive docs at: `http://localhost:8000/docs`
-
----
-
-## Global Rules (Everyone Must Follow)
-
-1. **No agentic code** — No LangChain, LangGraph, AutoGen, or tool-calling loops
-2. **Indian data only** — NFHS-5 primary, no forbidden datasets
-3. **Never commit raw data** — No `.DTA`, `.dta`, `.sav`, `.zip`, `.parquet` files
-4. **Never guess column names** — Use `docs/schema.json` as single source of truth
-5. **Never impute glucose** — `sb74`/`smb74` is ONLY the outcome, never a feature
-6. **Never hardcode numbers** — All stats computed from data via code
-7. **Always label correctly** — "elevated glucose (proxy)", never "diabetes"
-8. **Suppress small cells** — Any aggregate with n < 30 → suppress to null
-9. **Fixed seed = 42** — For all splits, training, and generation
-
----
-
-## Quick Start (P2, P3, P4)
-
-### 1. Clone the repo
 ```bash
-git clone https://github.com/Prapti101/ProxyPatient.git
-cd ProxyPatient
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r requirements.txt --torch-backend cpu
+source .venv/bin/activate
+export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2
+python -m pytest -q
+python -m models.make_demo_checkpoint --out-dir outputs/demo
+PP_DEMO_MOCK=1 PP_MODEL_DIR=outputs/demo python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Install dependencies
-```bash
-pip install fastapi uvicorn pydantic pandas pyarrow scikit-learn joblib torch scipy pyreadstat
-```
+Use `/profiles` to choose one of three supported FULL demo profiles, then submit its complete condition dictionary to `/generate`. All eight non-state conditions are required: sex, age_band, residence, wealth_quintile, bmi_band, hypertension, tobacco and alcohol. State is optional and its supported raw codes come from `/options`. Sex accepts 0/1 or female/male and normalizes to 0/1. Unknown fields, glucose-related input keys, and unsupported values return HTTP 422.
 
-### 3. Get data files from P1 (Prapti — shared privately)
-Place these in the `processed/` folder:
-- `dae_imputed_train.parquet` ← P2 needs this
-- `dae_imputed_val.parquet`   ← P3 needs this
-- `preprocess.pkl`            ← P2 and P3 need this
+The only partial-profile option is explicit demo/development `PP_ALLOW_PARTIAL_PROFILE=1`; it warns that independent marginals are used. Default real serving never resamples real rows or fabricates glucose.
 
-### 4. Start the backend API
-```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Open `http://localhost:8000/docs` to see all endpoints.
-
-### 5. Swap stubs when your code is ready
-
-**P2 — when CVAE is ready:**
-In `backend/main.py`, change line 35:
-```python
-# FROM:
-from backend.generator_stub import generate
-# TO:
-from backend.generator import generate
-```
-
-**P3 — when outcome_stat is ready:**
-In `backend/main.py`, change line 39:
-```python
-# FROM:
-from backend.outcome_stat_stub import outcome_stat
-# TO:
-from backend.outcome_stat import outcome_stat
-```
-
----
-
-## Key Numbers (from Stage 4)
-
-| Metric | Value |
+| Endpoint | Purpose |
 |---|---|
-| Total respondents | 8,25,954 |
-| With glucose readings | 7,98,622 (96.7%) |
-| Elevated glucose proxy rate | **2.88%** |
-| Train split | 5,81,542 rows |
-| Val split | 1,24,618 rows |
-| Test split (LOCKED) | 1,19,798 rows |
-| DAE final training loss | 0.037650 |
-| Missing values after DAE | **0** |
+| GET `/health` | Real/demo/unavailable readiness and model fingerprint |
+| GET `/schema`, `/options` | Raw-variable dictionary and supported model options |
+| GET `/profiles` | Full supported TRAIN profiles, each backed by at least 500 encoded rows |
+| POST `/generate`, `/compare` | Synthetic outcome summaries, provenance, scope and diagnostics |
+| GET `/validation`, `/model-comparison` | Verified packaged evaluation/model table, or explicit pending with null metrics |
+| POST `/parse` | Demo-only proposed conditions, negation handling, no confidence claim; requires confirmation |
 
----
+## One-command model workflow
 
-## Disclaimer
+The private NFHS files must remain on the authorized holder's machine and must never be uploaded to this cloud task, an AI chat or the public repository. No private data is bundled. `preprocess.pkl` is a historical all-data artifact and is not used by the current P2 workflow.
 
-> This tool generates SYNTHETIC patient scenarios for health-awareness and research
-> purposes ONLY. It is NOT a medical diagnosis, clinical assessment, or treatment
-> recommendation. "Elevated glucose (proxy)" refers to a random capillary glucose
-> reading ≥ 200 mg/dL and cannot distinguish Type 1 from Type 2 diabetes.
-> Always consult a qualified healthcare professional.
+Smoke the full pipeline using in-memory MOCK data:
 
----
+```bash
+python -m models.run_all --mock --quick --out-dir outputs/mock-run
+```
 
-*Source: NFHS-5 India (2019-21), MoHFW/IIPS, DHS Program*
-*License: DHS data used under approved research agreement. Raw data not redistributed.*
+On the authorized private machine, after checking the review's codebook/licence questions and rebuilding affected preprocessing:
+
+```bash
+python -m models.run_all --data-dir /private/processed --out-dir /private/proxypatient-quick --quick
+python -m models.run_all --data-dir /private/processed --out-dir /private/proxypatient-full --full
+```
+
+Outputs are separated into `safe_outputs/` (aggregate JSON/Markdown and checksum manifest) and `private_outputs/` (weights, preprocessor, marginals, supported profiles and baseline pickles). Never commit the private directory. Review even aggregate outputs before public release. Each stage records runtime and peak memory. `--skip-baselines` and `--skip-dae-benchmark` are explicit optional omissions recorded in the manifest.
+
+Real serving: `PP_MODEL_DIR=/private/proxypatient-quick/private_outputs PP_REPORT_DIR=/private/proxypatient-quick/safe_outputs python -m uvicorn backend.main:app`. Unset demo and artifact-override variables first. Reports come from the matching package; a passing software smoke run is not a fidelity certificate. Missing/stale reports remain pending. See [API contract](docs/API_CONTRACT.md), [demo runbook](docs/DEMO_RUNBOOK.md) and [viva notes](docs/VIVA_NOTES.md).
+
+Freeze the selected model/configuration before the single final evaluation:
+
+```bash
+python -m models.run_all --data-dir /private/processed --out-dir /private/proxypatient-full --final-test --i-understand-this-is-the-single-final-run
+```
+
+See [test split policy](docs/TEST_SPLIT_POLICY.md). The held-out split's aggregate statistics were previously computed; it is not an untouched test set. Completed final runs cannot repeat. If a previous run started and wrote no metrics, retry only after confirming the crash with `--confirm-previous-final-run-crashed`; unchanged frozen artifact hashes and an exclusive directory lock are required. Never delete the marker to tune models.
+
+The historical documented test size is 119,794, not independently verified here. V1 rates, DAE losses and missingness statistics are historical and are not current model results.
+
+## Files
+
+- `preprocess_v2.py`, `split_and_aggregate_v2.py`, `train_dae_v2.py`: private-holder preparation; do not run against survey data in this sandbox.
+- `models/run_all.py`: guarded orchestration and packaging.
+- `models/data.py`, `artifacts.py`, `privacy.py`: TRAIN-only encoding, artifact identity and suppression.
+- `models/train_cvae.py`, `train_baselines.py`, `eval_dev.py`, `check_dae_benchmark.py`: model stages.
+- `backend/`: strict version 2 API and decoder-only serving.
+- `tests/`: in-memory mock tests; no respondent files.
+- `legacy/`: historical v1 executables; do not run.
+- `docs/`: review, presentation scope, test policy, implementation log, backlog and open questions.
+
+DHS raw data is subject to the team's approved access agreement. The repository's research statement does not establish a software licence or authorize cloud sharing/model redistribution; those remain team decisions.

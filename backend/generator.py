@@ -3,11 +3,9 @@ ProxyPatient — Generator (P2, real CVAE)
 =========================================
     generate(condition: dict, n: int = 1000, seed: int = 42) -> pd.DataFrame
 
-Same signature as backend/generator_stub.py (parameter name `condition`,
-as called by backend/main.py). Enabled in main.py with env var
-PP_GENERATOR=real; otherwise the stub stays in use.
+Decoder-only generator; serving validates artifact identity and mode.
 
-condition: any subset of
+condition: FULL profile (partial only with explicit demo/development opt-in):
     sex              "female"/"male" (API form) or 0/1
     age_band         "15-24", "25-34", "35-49" (women) / "35-54" (men); either
                      sex-specific label is accepted, the output echoes the
@@ -18,16 +16,15 @@ condition: any subset of
     hypertension     0/1
     tobacco          0/1   (maps to any_tobacco)
     alcohol          0/1
-    state            1-36 (DHS code; only if the model was trained with state)
-Unspecified keys are sampled from models/condition_marginals.json as
-INDEPENDENT marginals, so the UI should send a FULL baseline profile plus the
-what-if changes. Invalid values raise ValueError.
+    state            supported raw code from the checkpoint mapping
+The UI sends a FULL baseline profile plus what-if changes. Only explicit
+demo/development partial requests fill independent marginals and report a warning. Invalid values raise ValueError.
 
 Returns n NEW rows sampled from the CVAE decoder, in ORIGINAL units: the
 conditions, generated variables, glucose_raw (mg/dL), elevated_glucose_proxy
 (derived from the generated glucose_raw and config threshold) and
 is_synthetic=True. Deterministic per seed; CPU; writes nothing to disk unless
-export_sample=True (to the git-ignored outputs/ folder).
+row export is disabled (including MOCK samples).
 """
 
 import json
@@ -52,26 +49,57 @@ FORBIDDEN_INPUT_CONDITIONS = [
 _BUNDLES = {}
 
 
+class ModelUnavailable(RuntimeError):
+    pass
+
+
 def _paths():
-    return (os.environ.get("PP_CVAE_WEIGHTS", DEFAULT_WEIGHTS),
-            os.environ.get("PP_CONDITION_MARGINALS", DEFAULT_MARGINALS))
+    root = os.environ.get("PP_MODEL_DIR", os.path.join(BASE_DIR, "models"))
+    return (os.environ.get("PP_CVAE_WEIGHTS", os.path.join(root, "cvae_weights.pt")),
+            os.environ.get("PP_CONDITION_MARGINALS", os.path.join(root, "condition_marginals.json")),
+            os.path.join(root, "cvae_preproc.json"))
 
 
 def _load():
-    wpath, mpath = _paths()
-    key = (wpath, mpath)
-    if key not in _BUNDLES:
-        if not os.path.exists(wpath):
-            raise RuntimeError(
-                f"CVAE weights not found at {wpath}. Train the model first "
-                "(python -m models.train_cvae, see models/RUN_ON_COLAB.md) or set PP_CVAE_WEIGHTS.")
-        if not os.path.exists(mpath):
-            raise RuntimeError(f"condition_marginals.json not found at {mpath}. Train the model first.")
-        from models.sampling import CVAEBundle   # torch imported only when the real generator is used
-        with open(mpath, encoding="utf-8") as f:
-            marg = json.load(f)
-        _BUNDLES[key] = (CVAEBundle.load(wpath, "cpu"), marg)
-    return _BUNDLES[key]
+    from models.common import load_config
+    from models.artifacts import validate_checkpoint
+    paths = _paths()
+    demo = os.environ.get("PP_DEMO_MOCK") == "1"
+    key = (paths, demo, tuple(os.stat(p).st_mtime_ns if os.path.isfile(p) else None for p in paths))
+    try:
+        if key not in _BUNDLES:
+            if not all(os.path.isfile(p) for p in paths):
+                raise ModelUnavailable("CVAE artifacts unavailable. Train the model first or explicitly create a MOCK demo checkpoint.")
+            from models.sampling import CVAEBundle
+            bundle = CVAEBundle.load(paths[0], "cpu")
+            with open(paths[1], encoding="utf-8") as f:
+                marg = json.load(f)
+            with open(paths[2], encoding="utf-8") as f:
+                pre = json.load(f)
+            if pre != bundle.ckpt["preproc"]:
+                raise ModelUnavailable("Preprocessor does not match checkpoint")
+            is_mock = bundle.ckpt.get("is_mock", bundle.ckpt.get("mock"))
+            from models.run_status import RUN_TYPES
+            run_type = bundle.ckpt.get("run_type")
+            if run_type not in RUN_TYPES or (run_type == "mock") != bool(is_mock):
+                raise ModelUnavailable("Checkpoint run_type missing, invalid or inconsistent with MOCK mode")
+            if is_mock is not demo:
+                raise ModelUnavailable("MOCK checkpoints require PP_DEMO_MOCK=1; demo mode requires a MOCK checkpoint")
+            fp = validate_checkpoint(bundle.ckpt, load_config())
+            if bundle.ckpt["scope"] != "complete_conditions":
+                raise ModelUnavailable("Presentation serving requires measured-BMI/known-BP complete_conditions scope")
+            if marg.get("_meta", {}).get("fingerprint") != fp:
+                raise ModelUnavailable("Marginals fingerprint does not match checkpoint")
+            _BUNDLES.clear()
+            _BUNDLES[key] = (bundle, marg)
+        bundle, marg = _BUNDLES[key]
+        # Revalidate against live configuration even when weights are cached.
+        validate_checkpoint(bundle.ckpt, load_config())
+        return bundle, marg
+    except ModelUnavailable:
+        raise
+    except Exception as exc:
+        raise ModelUnavailable("CVAE artifacts invalid or incompatible: " + str(exc)) from exc
 
 
 def _parse_binary(key, v):
@@ -121,17 +149,17 @@ def _parse_condition(condition: dict, bundle) -> dict:
             try:
                 st = int(str(v).strip())
             except ValueError:
-                raise ValueError(f"state must be an integer DHS code 1-{spec.n_states}; got {v!r}")
-            if not 1 <= st <= spec.n_states:
-                raise ValueError(f"state must be 1-{spec.n_states}; got {v!r}")
-            out["state"] = st - 1
+                raise ValueError(f"state must be an integer supported DHS code; got {v!r}")
+            if st not in spec.state_codes:
+                raise ValueError(f"state must be one of {spec.state_codes}; got {v!r}")
+            out["state"] = spec.state_codes.index(st)
         elif key in ("hypertension", "tobacco", "alcohol"):
             out[key] = _parse_binary(key, v)
         else:
             lab = str(v).strip().lower()
             if key == "wealth_quintile":
                 try:
-                    lab = str(int(float(lab)))
+                    lab = str(int(lab))
                 except ValueError:
                     pass
             levels = spec.cond_levels[key]
@@ -148,7 +176,7 @@ def _marginal_probs(marg: dict, key: str, levels):
     counts = marg.get(key, {})
     w = np.array([float(counts.get(lab) or 0) for lab in levels])
     if w.sum() <= 0:
-        w = np.ones(len(levels))
+        raise ModelUnavailable(f"No supported marginal counts for {key}")
     return w / w.sum()
 
 
@@ -161,6 +189,9 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         raise ValueError(f"n must be between {N_MIN} and {N_MAX}; got {n}")
     bundle, marg = _load()
     parsed = _parse_condition(condition, bundle)
+    missing = [key for key in bundle.spec.cond_names if key not in parsed]
+    if missing and not (os.environ.get("PP_ALLOW_PARTIAL_PROFILE") == "1" and os.environ.get("PP_DEMO_MOCK") == "1"):
+        raise ValueError("Missing full profile conditions: " + ", ".join(missing))
     spec, cfg = bundle.spec, bundle.cfg
     n = int(n)
     rng = np.random.default_rng(int(seed))
@@ -179,11 +210,14 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         if "state" in parsed:
             state_idx = np.full(n, parsed["state"], dtype=np.int64)
         else:
-            codes = [str(s) for s in range(1, spec.n_states + 1)]
+            codes = [str(s) for s in spec.state_codes]
             state_idx = rng.choice(spec.n_states, size=n, p=_marginal_probs(marg, "state", codes))
             filled.append("state")
 
-    gen = bundle.sample(cond_idx, state_idx, seed=int(seed))
+    try:
+        gen = bundle.sample(cond_idx, state_idx, seed=int(seed))
+    except ValueError as exc:
+        raise ModelUnavailable("CVAE decoding failed: " + str(exc)) from exc
 
     ci = {c: j for j, c in enumerate(spec.cond_names)}
     sex = cond_idx[:, ci["sex"]]
@@ -202,7 +236,7 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
         "alcohol": cond_idx[:, ci["alcohol"]].astype(int),
     })
     if state_idx is not None:
-        df["state"] = (state_idx + 1).astype(int)
+        df["state"] = np.asarray(spec.state_codes, dtype=int)[state_idx]
     for c in ["age", "bmi", "weight_kg", "height_cm", "waist_cm", "hip_cm",
               "systolic_avg", "diastolic_avg", "education", "bp_ever_checked", "glucose_raw"]:
         if c in gen.columns:
@@ -212,11 +246,13 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
             df[c] = df[c].astype(int)
     df["elevated_glucose_proxy"] = (df["glucose_raw"] >= float(cfg["threshold_mg_dl"])).astype(int)
     df["is_synthetic"] = True
+    df.attrs["fingerprint"] = bundle.ckpt["fingerprint"]
+    df.attrs["run_type"] = bundle.ckpt["run_type"]
+    df.attrs["demo"] = bool(bundle.ckpt["is_mock"])
     df.attrs["sampling"] = {**gen.attrs.get("sampling", {}), "filled_from_marginals": filled,
-                            "seed": int(seed), "label": "SYNTHETIC"}
+                            "seed": int(seed), "label": "SYNTHETIC",
+                            "warning": "Independent marginal fill (development only)" if missing else None}
 
     if export_sample:
-        os.makedirs(OUTPUTS_DIR, exist_ok=True)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-        df.to_csv(os.path.join(OUTPUTS_DIR, f"synthetic_sample_seed{seed}_{stamp}.csv"), index=False)
+        raise ValueError("Row export is disabled; MOCK samples must never be persisted")
     return df

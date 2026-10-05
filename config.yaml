@@ -8,7 +8,7 @@ project:
   name: "ProxyPatient"
   version: "2.0.0"   # v2: BP/hypertension + men's BMI from household file
   description: >
-    Synthetic Patient Scenario Generation for Diabetes Risk Awareness.
+    Synthetic Scenario Exploration for Elevated Glucose (Proxy).
     Strictly generative AI. NOT a diagnostic or clinical tool.
   outcome_label: "elevated glucose (proxy)"  # Always use this label. Never say "diabetes risk".
 
@@ -182,9 +182,11 @@ model:
   batch_size: 1024
   max_epochs: 100
   early_stopping_patience: 8     # on validation ELBO, after KL annealing
-  state_embedding: true          # optional `state` condition (DHS 1-36), embedding dim below
+  state_embedding: true          # optional `state` condition (supported training codes), embedding dim below
   state_embedding_dim: 8
-  n_states: 36
+  min_rows_per_sex: 5000
+  optional_generated: ["height_cm", "weight_kg"]
+  optional_min_share: 0.8
   generate_bp: false             # true adds systolic_avg/diastolic_avg (consistent with hypertension)
   glucose_head: "mixture"        # "mixture" (K components) or "gaussian"; on log(glucose_raw)
   glucose_mixture_components: 3
@@ -208,8 +210,9 @@ api:
     - GET  /profiles
     - POST /generate
     - POST /compare
+    - GET  /model-comparison
     - GET  /validation
-    - POST /parse      # optional BERT parser (P3)
+    - POST /parse      # demo-only rule-based parser
 
 # -----------------------------------------------------------------------------
 # EXTERNAL VALIDATION DATASET (NMB-2017)
@@ -223,8 +226,8 @@ external_validation:
   status: "PERMANENTLY_SKIPPED"
   reason: >
     Mendeley DOI 10.17632/twp8xw6p25.1 contains only a PDF — no CSV or data file.
-    Cannot be used for validation. P3 should use test_v2.parquet (held-out, 119,794 rows)
-    for all fidelity and outcome validation.
+    Cannot be used for validation. Use val_v2.parquet for development. The held-out test split is reserved
+    for the one acknowledged frozen final evaluation; prior aggregates were computed.
   measure: "HbA1c"
   population: "high-risk Indian adults (n=7496)"
   note: >
@@ -237,3 +240,21 @@ external_validation:
 baselines:
   subsample_rows: 100000     # stratified on sex x age band x BMI band x hypertension
   epochs: 100                # ctgan default is 300; 100 keeps Colab GPU runs < ~1 h
+
+preprocessing:
+  women_height_min_share: 0.5
+
+# Reduced untuned private run; independent full-run support remains unchanged.
+quick:
+  min_rows_per_sex: 2000
+  cvae_train_rows: 100000
+  cvae_epochs: 6
+  baseline_train_rows: 20000
+  baseline_epochs: 15
+  evaluation_rows: 10000
+mock_run:
+  cvae_train_rows: 4000
+  cvae_epochs: 2
+  baseline_train_rows: 3000
+  baseline_epochs: 1
+  evaluation_rows: 1500

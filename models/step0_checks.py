@@ -54,7 +54,8 @@ def check_manifest(ddir, final_test):
     with open(path, encoding="utf-8") as f:
         expected = manifest_hashes(json.load(f))
     rows = []
-    names = sorted(set(expected) | {f for f in os.listdir(ddir) if f.endswith((".parquet", ".pkl", ".pt"))})
+    required = {f"{prefix}{split}_v2.parquet" for prefix in ("", "dae_imputed_") for split in ("train", "val")}
+    names = sorted(required | set(expected) | {f for f in os.listdir(ddir) if f.endswith((".parquet", ".pkl", ".pt"))})
     for name in names:
         fp = os.path.join(ddir, name)
         if "test" in name.lower() and not final_test:
@@ -72,8 +73,8 @@ def check_manifest(ddir, final_test):
 
 def cnt(x, k):
     """A count is itself a cell: show 0, the count if >= k, else '<k'."""
-    x = int(x)
-    return x if x == 0 or x >= k else f"<{k}"
+    from models.privacy import suppress_count
+    return None if x is None else suppress_count(x, k)
 
 
 def rate_table(df, cols, y, k):
@@ -91,7 +92,7 @@ def rate_table(df, cols, y, k):
 
 def split_section(name, raw, imp, cfg, k):
     out, md = {}, [f"## Split: {name}", ""]
-    md.append(f"Shapes: raw {raw.shape if raw is not None else 'n/a'}, DAE-imputed {imp.shape}.")
+    md.append(f"Rows: raw {cnt(len(raw), k) if raw is not None else None}, DAE-imputed {cnt(len(imp), k)}; columns: {len(imp.columns)}.")
     md.append("")
     cols = list(imp.columns)
     rows = []
@@ -132,12 +133,12 @@ def split_section(name, raw, imp, cfg, k):
             v = as_num(df.loc[m, col]).dropna()
             if len(v) >= k:
                 cav.append([f"{lab}: {col} P1/P50/P99", " / ".join(f"{x:.1f}" for x in v.quantile([.01, .5, .99]))])
-    med = g.median()
+    med = g.median() if g.notna().sum() >= k else np.nan
     unit = "mg/dL" if med > 40 else ("mmol/L?" if med < 15 else "UNCLEAR")
-    cav.append(["glucose median (all) -> unit verdict", f"{med:.1f} -> {unit}"])
+    cav.append(["glucose median (all) -> unit verdict", f"{med:.1f} -> {unit}" if np.isfinite(med) else None])
     sw = as_num(df["sex"]).value_counts().to_dict()
     cav.append(["glucose known: women + men == total known?",
-                f"{int((g.notna() & (sex == 0)).sum()) + int((g.notna() & (sex == 1)).sum())} vs {int(g.notna().sum())}"])
+                f"{cnt(int((g.notna() & (sex == 0)).sum()), k)} + {cnt(int((g.notna() & (sex == 1)).sum()), k)} vs {cnt(int(g.notna().sum()), k)}"])
     cav.append(["sex values present", sorted(str(int(x)) for x in sw)])
     ep = as_num(df["elevated_glucose_proxy"])
     both = g.notna() & ep.notna()
@@ -182,39 +183,44 @@ def main(argv=None):
           f"Aggregates only; cells with n < {k} are suppressed.", ""]
     res = {"mock": args.mock}
     splits = ["train", "val"] + (["test"] if args.final_test else [])
-    frames = {}
     if args.mock:
         from tests.mock_data import make_mock_v2
         print(f"*** {MOCK_BANNER} ***")
-        for i, s in enumerate(splits):
-            frames[s] = (make_mock_v2(3000, seed=10 + i, imputed=False, banner=False),
-                         make_mock_v2(3000, seed=10 + i, imputed=True, banner=False))
+        def iter_frames():
+            for i, split in enumerate(splits):
+                yield (split, make_mock_v2(3000, seed=10+i, imputed=False, banner=False),
+                       make_mock_v2(3000, seed=10+i, imputed=True, banner=False))
         md += ["## File integrity", "", "MOCK run: MANIFEST check skipped.", ""]
     else:
         d = data_dir(args.data_dir)
         man = check_manifest(d, args.final_test)
+        failures = [r for r in man if r["status"] != "OK" and not r["status"].startswith("LOCKED")]
+        if failures:
+            raise ValueError("Manifest integrity failed: " + "; ".join(f"{r['file']}: {r['status']}" for r in failures))
         res["manifest"] = man
         md += ["## File integrity (SHA-256 vs MANIFEST.json)", "",
                md_table([[r["file"], r.get("sha256_prefix"), r["status"]] for r in man],
                         ["file", "sha256 (first 16)", "status"]), ""]
-        for s in splits:
-            ft = s == "test"
-            raw = read_parquet(split_path(d, s, imputed=False, final_test=ft), final_test=ft)
-            imp = read_parquet(split_path(d, s, imputed=True, final_test=ft), final_test=ft)
-            frames[s] = (raw, imp)
+        def iter_frames():
+            for split in splits:
+                final = split == "test"
+                yield (split, read_parquet(split_path(d, split, imputed=False, final_test=final), final_test=final),
+                       read_parquet(split_path(d, split, imputed=True, final_test=final), final_test=final))
     res["splits"] = {}
-    for s, (raw, imp) in frames.items():
-        o, m = split_section(s, raw, imp, cfg, k)
-        res["splits"][s] = o
-        md += m
+    for split, raw, imp in iter_frames():
+        section, markdown = split_section(split, raw, imp, cfg, k)
+        res["splits"][split] = section
+        md += markdown
+        if split == "train":
+            tr = imp
+        del raw, imp
 
     # scope, cells, rates: TRAIN only (val/test would be the same picture)
-    tr = frames["train"][1]
     scoped, rep = apply_scope(tr, cfg)
     res["scope"] = {**rep, "steps": [{kk: (cnt(v, k) if kk.startswith("n_") else v) for kk, v in st_.items()}
                                      for st_ in rep["steps"]]}
     md += ["## Training scope (train split)", "",
-           f"Scope `{rep['scope']}`: {rep['n_in_scope']:,} of {rep['n_input']:,} rows in scope "
+           f"Scope `{rep['scope']}`: {cnt(rep['n_in_scope'], k)} of {cnt(rep['n_input'], k)} rows in scope "
            f"({rep['in_scope_share']:.2%}).", "",
            md_table([[s["rule"], cnt(s["n_excluded"], k), cnt(s["n_excluded_women"], k), cnt(s["n_excluded_men"], k)]
                      for s in rep["steps"]],
@@ -240,7 +246,7 @@ def main(argv=None):
     rows = rate_table(cf, spec.cond_names, y, k)
     res["rates"] = rows
     md += ["## Outcome: elevated glucose (proxy) rate, single variables and pairs (in-scope train, unweighted)", "",
-           f"Overall: n={int(y.notna().sum()):,}, rate={float(y.mean()) * 100:.3f}%.", "",
+           f"Overall: n={cnt(y.notna().sum(), k)}, rate={round(float(y.mean()) * 100, 3) if y.notna().sum() >= k else None}%.", "",
            md_table(rows, ["variables", "cell", "n", "rate %"], "suppressed (n<30)"), ""]
     st = as_num(tr["state"]).value_counts().sort_index()
     small = [[int(s), int(n) if n >= k else None] for s, n in st.items() if n < 500]
@@ -250,6 +256,8 @@ def main(argv=None):
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         f.write("\n".join(md))
+    from models.privacy import safe_public_output
+    res = safe_public_output(res, k)
     write_json(res, os.path.splitext(args.out)[0] + ".json")
     print(f"wrote {args.out}")
     return res

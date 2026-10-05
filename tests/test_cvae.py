@@ -21,7 +21,7 @@ def test_sampling_deterministic_and_complete(mock_model_dir):
     b = CVAEBundle.load(str(mock_model_dir / "cvae_weights.pt"))
     rng = np.random.default_rng(0)
     cond = np.stack([rng.integers(0, len(b.spec.cond_levels[c]), 500) for c in b.spec.cond_names], 1)
-    st = rng.integers(0, 36, 500)
+    st = rng.integers(0, b.spec.n_states, 500)
     a, c = b.sample(cond, st, seed=7), b.sample(cond, st, seed=7)
     d = b.sample(cond, st, seed=8)
     assert a.equals(c) and not a.equals(d)

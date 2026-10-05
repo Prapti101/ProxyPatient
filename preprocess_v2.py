@@ -36,12 +36,13 @@ MISS_CONT = set(range(9994, 10000)) | set(range(99994, 100000))
 MISS_CAT  = {8, 9}
 MISS_BP   = {994, 995, 996, 997, 998, 999}   # BP readings 0-300 mmHg valid
 MISS_HH   = set(range(9990, 10000)) | set(range(99990, 100000)) | {9990}
-GLUCOSE_THRESHOLD = 200
+from models.common import load_config
+GLUCOSE_THRESHOLD = load_config()["outcome"]["threshold_mg_dl"]
 
 # ── Column lists ──────────────────────────────────────────────────────────────
 WOMEN_COLS = [
     # Demographics
-    "v005", "v012", "v013", "v024", "v025", "v106", "v190",
+    "v001", "v002", "v003", "v005", "v012", "v013", "v024", "v025", "v106", "v190",
     # Anthropometry (women)
     "v437", "v445",
     # Waist/hip
@@ -140,33 +141,32 @@ def bp_measured_flag(sys_avg, dia_avg):
     return ((sys_avg.notna()) | (dia_avg.notna())).astype(int)
 
 def derive_bmi_band(bmi_series):
-    return pd.cut(
-        bmi_series,
-        bins=[0, 18.5, 25.0, 30.0, 999],
-        labels=["underweight", "normal", "overweight", "obese"],
-        right=False
-    )
+    bands = load_config()["bmi"]["bands"]
+    names = list(bands)
+    edges = [bands[name][0] for name in names] + [bands[names[-1]][1]]
+    return pd.cut(bmi_series, bins=edges, labels=names, right=False)
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
+
+def validate_women_height(df, minimum_share=None):
+    from models.common import load_config
+    minimum_share = (load_config().get("preprocessing", {}).get("women_height_min_share", 0.5)
+                     if minimum_share is None else minimum_share)
+    if not 0 <= minimum_share <= 1:
+        raise ValueError("women_height_min_share must be between 0 and 1")
+    share = np.isfinite(pd.to_numeric(df["height_cm"], errors="coerce")).mean()
+    if not np.isfinite(share) or share < minimum_share:
+        raise ValueError("Women's household height linkage failed: check v001/v002/v003 and ha3; "
+                         f"non-missing share must be at least {minimum_share:.0%}")
+
 
 def main():
     os.makedirs(PROC_DIR, exist_ok=True)
     os.makedirs(DOCS_DIR, exist_ok=True)
 
-    # ── Load v1 hashes for comparison ─────────────────────────────────────────
-    print("[0/7] Computing v1 split hashes for later comparison...")
+    # Split membership validation belongs to split_and_aggregate_v2, never preprocessing.
     v1_hashes = {}
-    for split in ["train", "val", "test"]:
-        path = os.path.join(PROC_DIR, f"{split}.parquet")
-        if os.path.exists(path):
-            ids = pd.read_parquet(path, columns=["_row_id"])["_row_id"].sort_values().values
-            h = hashlib.sha256(ids.tobytes()).hexdigest()
-            v1_hashes[split] = h
-            print(f"  v1 {split} hash: {h}")
-        else:
-            print(f"  v1 {split}.parquet NOT FOUND")
-    print()
 
     # ── 1. Load Women ──────────────────────────────────────────────────────────
     print("[1/7] Loading Women's file (usecols only)...")
@@ -300,6 +300,8 @@ def main():
             df_w["height_cm"] = np.nan
     else:
         df_w["height_cm"] = np.nan
+
+    validate_women_height(df_w)
 
     # Select output columns
     WOMEN_OUT = [

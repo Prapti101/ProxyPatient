@@ -16,6 +16,7 @@ import argparse
 import os
 import pickle
 import time
+import resource
 from datetime import datetime, timezone
 
 import numpy as np
@@ -23,7 +24,7 @@ import pandas as pd
 
 from models.common import (DOCS_DIR, MOCK_BANNER, OUTPUTS_DIR, data_dir, load_config,
                            read_parquet, split_path, write_json)
-from models.data import apply_scope, build_spec, condition_frame, raw_generated
+from models.data import apply_scope, build_spec, condition_frame, raw_generated, fit_preproc, make_arrays, require_sex_support
 
 STRATIFY_ON = ["sex", "age_band", "bmi_band", "hypertension"]
 
@@ -73,7 +74,7 @@ def combo_key(cf: pd.DataFrame, cols) -> pd.Series:
 
 
 def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
-                     batch: int = 50_000, max_factor: float = 30.0):
+                     batch: int = 50_000, max_factor: float = 30.0, sample_columns=None):
     """Fill one generated row per row of `wanted` (condition labels) by drawing
     unconditional samples and keeping those whose condition columns match.
     Returns (samples aligned to wanted's index with NaN rows where unfilled, stats)."""
@@ -81,10 +82,12 @@ def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
     need = combo_key(wanted, cond_cols)
     slots = {k: list(ix) for k, ix in need.groupby(need).groups.items()}
     filled = {}
+    columns = list(sample_columns or cond_cols)
     drawn = accepted = 0
     t0 = time.time()
     while slots and drawn < max_factor * len(wanted):
         s = model.sample(batch)
+        columns = list(s.columns)
         drawn += len(s)
         keys = combo_key(s, cond_cols)
         for k, ix in keys.groupby(keys).groups.items():
@@ -98,7 +101,7 @@ def rejection_sample(model, wanted: pd.DataFrame, cond_cols, seed: int,
             accepted += len(take)
             if not free:
                 del slots[k]
-    res = pd.DataFrame([filled[i] for i in sorted(filled)], index=sorted(filled)).reindex(wanted.index)
+    res = pd.DataFrame([filled[i] for i in sorted(filled)], index=sorted(filled), columns=columns).reindex(wanted.index)
     stats = {"requested": int(len(wanted)), "filled": int(len(filled)),
              "fill_rate": round(len(filled) / max(len(wanted), 1), 6),
              "drawn": int(drawn), "acceptance_rate": round(accepted / max(drawn, 1), 6),
@@ -124,11 +127,13 @@ def main(argv=None):
     p.add_argument("--models", default="tvae,ctgan")
     p.add_argument("--subsample", type=int, default=None, help="default: config baselines.subsample_rows")
     p.add_argument("--epochs", type=int, default=None, help="default: config baselines.epochs or 100")
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=None)
     p.add_argument("--cpu", action="store_true")
+    p.add_argument("--quick", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     args = p.parse_args(argv)
     cfg = load_config()
+    args.seed = cfg.get("model", {}).get("seed", 42) if args.seed is None else args.seed
     if args.mock:
         from tests.mock_data import make_mock_v2
         print(f"*** {MOCK_BANNER} *** (smoke run)")
@@ -136,9 +141,20 @@ def main(argv=None):
     else:
         raw = read_parquet(split_path(data_dir(args.data_dir), "train"))
     tr, scope = apply_scope(raw, cfg)
-    spec = build_spec(cfg, use_state=False)
+    spec = build_spec(cfg, use_state=False, training_df=tr)
+    arrays = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+    require_sex_support(arrays, cfg, mock=args.mock, quick=args.quick)
     args.subsample = args.subsample or int(cfg.get("baselines", {}).get("subsample_rows", 100_000))
-    t = stratified_subsample(joint_table(tr, spec), args.subsample, args.seed)
+    if args.quick:
+        from models.quick import stratified_train_sample
+        tr = stratified_train_sample(tr.loc[arrays.retained_mask], args.subsample,
+              30 if args.mock else int(cfg["quick"]["min_rows_per_sex"]), args.seed,
+              float(cfg["outcome"]["threshold_mg_dl"]))
+        t = joint_table(tr, spec)
+        selected = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+        require_sex_support(selected, cfg, mock=args.mock, quick=True)
+    else:
+        t = stratified_subsample(joint_table(tr.loc[arrays.retained_mask], spec), args.subsample, args.seed)
     epochs = args.epochs or int(cfg.get("baselines", {}).get("epochs", 100))
     import torch
     gpu = torch.cuda.is_available() and not args.cpu
@@ -156,6 +172,9 @@ def main(argv=None):
         _, st = rejection_sample(m, probe, spec.cond_names, args.seed, batch=20_000, max_factor=20)
         log["models"][kind] = {"train_seconds": secs, "probe_rejection_sampling": st}
         print(f"  {kind}: {secs}s, probe acceptance {st['acceptance_rate']}, fill {st['fill_rate']}")
+    log["peak_memory_mib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024, 2)
+    from models.run_status import resolve_run_type, run_fields
+    log.update(run_fields(resolve_run_type(args.mock, args.quick)))
     write_json(log, args.log_out)
     return log
 

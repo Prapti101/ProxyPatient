@@ -39,7 +39,7 @@ def make_mock_v2(n: int = 5000, seed: int = 0, imputed: bool = True,
         labels = cfg["whatif_options"]["age_band"][f"{key}_options"]
         for (lo, hi), lab in zip(cfg["age_bands"][key], labels):
             age_band[(sex == s) & (age >= lo) & (age <= hi)] = lab
-    state = rng.integers(1, 37, n)
+    state = rng.choice(list(range(1, 26)) + list(range(27, 38)), n)
     residence = np.where(rng.random(n) < 0.3, "urban", "rural")
     wealth = rng.integers(1, 6, n)
     education = np.clip(np.round(rng.normal(1.5 + 0.2 * (wealth - 3), 1.0)), 0, 3)
