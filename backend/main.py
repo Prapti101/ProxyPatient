@@ -17,7 +17,7 @@ Endpoints:
 
 RULES ENFORCED:
   - Glucose is never a conditioning input (blocked in schemas.py).
-  - Raw data rows are never returned.
+  - Real respondent rows and bulk synthetic exports are never returned.
   - Outcome always labelled "elevated glucose (proxy)".
   - Disclaimer always included in every response that shows a rate.
   - All numbers come from code — nothing hardcoded.
@@ -166,14 +166,15 @@ def _load_or_503():
         raise HTTPException(503, str(exc)) from exc
 
 
-def _response_fields(condition, df, stat):
+def _response_fields(condition, df, stat, n_examples=3, scenario_id="S1"):
     from models.common import age_band_label, parse_age_band, load_config
     effective = condition.model_dump(exclude_none=True)
     if "sex" in effective and "age_band" in effective:
         effective["age_band"] = age_band_label(load_config(), effective["sex"], parse_age_band(load_config(), effective["age_band"]))
     from models.privacy import safe_public_output
     diagnostics = safe_public_output(df.attrs["sampling"])
-    return dict(condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
+    from backend.examples import example_fields
+    return dict(**example_fields(df, n_examples, scenario_id), condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
                 model_fingerprint=df.attrs["fingerprint"], **run_fields(df.attrs["run_type"]),
                 banner="MOCK DEMO — not NFHS-5" if df.attrs["demo"] else None,
                 sampling_diagnostics={**diagnostics, "rejection_rate": diagnostics["first_pass_inconsistent_share"],
@@ -219,7 +220,7 @@ def generate_cohort(req: GenerateRequest):
         logger.error(f"Outcome stat error: {e}")
         raise HTTPException(500, f"Outcome computation failed: {str(e)}")
 
-    return GenerateResponse(**_response_fields(req.condition, df, stat))
+    return GenerateResponse(**_response_fields(req.condition, df, stat, req.n_examples))
 
 
 @app.post("/compare", response_model=CompareResponse, tags=["Scenarios"])
@@ -231,7 +232,7 @@ def compare_scenarios(req: CompareRequest):
     results = []
     baseline_rate = None
 
-    for scenario in req.scenarios:
+    for scenario_index, scenario in enumerate(req.scenarios, 1):
         condition_dict = scenario.condition.model_dump(exclude_none=True)
 
         for key in condition_dict:
@@ -257,7 +258,7 @@ def compare_scenarios(req: CompareRequest):
                    if baseline_rate is not None else None
 
         results.append(ScenarioResult(label=scenario.label, delta_pp=delta_pp,
-                                      **_response_fields(scenario.condition, df, stat)))
+                                      **_response_fields(scenario.condition, df, stat, scenario.n_examples, f"S{scenario_index}")))
 
     return CompareResponse(**run_fields(df.attrs["run_type"]), scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 

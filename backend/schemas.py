@@ -105,6 +105,7 @@ class Condition(StrictModel):
 class GenerateRequest(StrictModel):
     condition: Condition
     n: int = Field(default_factory=lambda: int(load_config()['outcome_stat']['default_cohort_size']), ge=100, le=10000, strict=True)
+    n_examples: int = Field(default=3, ge=1, le=5, strict=True)
     seed: int = Field(default_factory=lambda: int(load_config()['model']['seed']), strict=True)
 
     @model_validator(mode='after')
@@ -135,7 +136,21 @@ class RunStatus(StrictModel):
     demo: bool = False
 
 
+class SyntheticExample(StrictModel):
+    example_id: str
+    synthetic: Literal[True] = True
+    label: str
+    effective_conditions: dict[str, Any]
+    generated_features: dict[str, Any]
+    glucose_raw: int
+    elevated_glucose_proxy: bool
+    illustrative_elevated: bool = False
+
+
 class GenerateResponse(RunStatus):
+    examples: Optional[list[SyntheticExample]] = None
+    examples_status: str
+    examples_note: str = 'Nearest-record screening is a heuristic, not a privacy guarantee. Examples do not determine the cohort statistic.' 
     condition: Condition
     effective_conditions: dict[str, Any]
     outcome_stat: OutcomeStat
