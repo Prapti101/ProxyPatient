@@ -127,7 +127,15 @@ class OutcomeStat(StrictModel):
     monte_carlo_interval: Optional[dict[str, Any]] = None
 
 
-class GenerateResponse(StrictModel):
+class RunStatus(StrictModel):
+    run_type: Optional[str] = None
+    preliminary: bool = False
+    status_banner: str = "UNAVAILABLE"
+    run_note: Optional[str] = None
+    demo: bool = False
+
+
+class GenerateResponse(RunStatus):
     condition: Condition
     effective_conditions: dict[str, Any]
     outcome_stat: OutcomeStat
@@ -157,7 +165,7 @@ class ScenarioResult(GenerateResponse):
     delta_pp: float
 
 
-class CompareResponse(StrictModel):
+class CompareResponse(RunStatus):
     scenarios: list[ScenarioResult]
     model_fingerprint: str
     disclaimer: str = DISCLAIMER
@@ -166,7 +174,7 @@ class CompareResponse(StrictModel):
     note: str = 'Differences describe synthetic scenarios, not causal effects.'
 
 
-class HealthResponse(StrictModel):
+class HealthResponse(RunStatus):
     status: str = 'ok'
     mode: str = 'unavailable'
     model_fingerprint: Optional[str] = None

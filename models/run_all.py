@@ -20,6 +20,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from models.common import load_config, sha256_file, write_json
+from models.run_status import resolve_run_type, run_fields
 from models.privacy import safe_public_output, small_count_paths
 
 STAGES = ('step0', 'dae_benchmark', 'train_cvae', 'train_baselines', 'eval_dev', 'package')
@@ -79,7 +80,7 @@ def package(args):
     for path in whitelist:
         if not path.exists():
             continue
-        payload = safe_public_output(json.loads(path.read_text()))
+        payload = safe_public_output({**json.loads(path.read_text()), **run_fields(args.run_type)})
         if small_count_paths(payload):
             raise ValueError('Public output contains unsuppressed respondent counts')
         target = safe/path.name
@@ -90,6 +91,7 @@ def package(args):
             shutil.copy2(markdown, safe/markdown.name)
             manifest.append({'file': markdown.name, 'sha256': sha256_file(str(safe/markdown.name))})
     card = json.loads((safe/'model_card.json').read_text())
+    card.update(run_fields(args.run_type))
     card['evaluation'] = json.loads((safe/'model_comparison_dev.json').read_text())
     card['status'] = 'MOCK demonstration, not NFHS-5' if args.mock else 'NFHS-5 TRAIN/VAL run; no untouched-test claim'
     card['model_fingerprint'] = checkpoint.ckpt['fingerprint']
@@ -101,7 +103,7 @@ def package(args):
         write_json(card, str(Path(MODELS_DIR)/'model_card.json'))
     for entry in manifest:
         entry['sha256'] = sha256_file(str(safe/entry['file']))
-    write_json({'mock': args.mock, 'files': manifest, 'skipped_stages': args.skipped_stages}, str(safe/'manifest.json'))
+    write_json({**run_fields(args.run_type), 'mock': args.mock, 'files': manifest, 'skipped_stages': args.skipped_stages}, str(safe/'manifest.json'))
     (safe/'README.md').write_text('Aggregate-only run reports. Counts below 30 are null. '
                                  'Review licensing and disclosure before public release. '
                                  + ('All numbers are MOCK smoke results, not NFHS-5 evidence.\n' if args.mock else 'These are computed private-run results, not a clinical assessment.\n'))
@@ -126,6 +128,7 @@ def stage(args):
         elif name == 'train_cvae':
             from models.train_cvae import main
             main(data + ['--cpu', '--out-dir', str(work/'model')]
+                 + ['--run-type', 'quick' if args.quick else 'full']
                  + (['--epochs', '2', '--max-rows', '4000' if args.mock else '50000'] if quick else []))
         elif name == 'train_baselines':
             from models.train_baselines import main
@@ -174,6 +177,7 @@ def parse_args(argv=None):
         parser.error('--final-test requires --i-understand-this-is-the-single-final-run')
     if args.final_test and (args.quick or args.full):
         parser.error('final evaluation uses frozen artifacts, not --quick/--full')
+    args.run_type = resolve_run_type(args.mock, args.quick)
     args.skipped_stages = [s for s, skip in [('train_baselines', args.skip_baselines), ('dae_benchmark', args.skip_dae_benchmark)] if skip]
     return args
 
@@ -226,8 +230,8 @@ def main(argv=None):
     metrics = [json.loads((root/'stage_metrics'/f'{name}.json').read_text()) for name in names]
     metrics_name = 'final_run_metrics.json' if args.final_test else 'run_metrics.json'
     safe = root/'safe_outputs'
-    write_json({'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
-    manifest = {'mock': args.mock, 'skipped_stages': args.skipped_stages,
+    write_json({**run_fields(args.run_type), 'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
+    manifest = {**run_fields(args.run_type), 'mock': args.mock, 'skipped_stages': args.skipped_stages,
                 'files': [{'file': path.name, 'sha256': sha256_file(str(path))}
                           for path in sorted(safe.iterdir()) if path.suffix in ('.json', '.md') and path.name != 'manifest.json']}
     write_json(manifest, str(safe/'manifest.json'))

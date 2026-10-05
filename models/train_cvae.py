@@ -83,6 +83,8 @@ def evaluate(model, arr, bs, device, use_state):
 
 
 def train(args, cfg):
+    from models.run_status import resolve_run_type, run_fields
+    args.run_type = resolve_run_type(args.mock, args.run_type == "quick")
     cfg = copy.deepcopy(cfg)
     if args.scope is not None:
         cfg.setdefault("model", {})["scope"] = args.scope
@@ -111,6 +113,7 @@ def train(args, cfg):
     va, scope_va = apply_scope(va_raw, cfg, args.scope)
     spec = build_spec(cfg, use_state=False if args.no_state else None, generate_bp=args.generate_bp, training_df=tr)
     pre = fit_preproc(raw_generated(tr, spec), spec)
+    pre.meta.update(run_fields(args.run_type))
     a_tr, a_va = make_arrays(tr, pre), make_arrays(va, pre)
     require_sex_support(a_tr, cfg, mock=args.mock)
     if len(a_va.cont) < 30:
@@ -175,17 +178,20 @@ def train(args, cfg):
             "hparams": model.hparams, "preproc": json.loads(json.dumps(_pre_dict(pre))),
             "cfg": inference_cfg(cfg), "variant": args.variant, "glucose_head": args.glucose_head,
             "mock": bool(args.mock), "is_mock": bool(args.mock), "scope": scope_tr["scope"],
-            "config_fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
+            "run_type": args.run_type, "config_fingerprint": fingerprint(cfg, spec), "created": datetime.now(timezone.utc).isoformat()}
     ckpt["fingerprint"] = model_fingerprint(ckpt)
     weights = args.weights_out or paths["weights"]
     torch.save(ckpt, weights)
     pre.to_json(paths["preproc"])
     marginals = condition_marginals(tr.loc[a_tr.retained_mask], spec, cfg)
+    marginals.update(run_fields(args.run_type))
     marginals["_meta"]["fingerprint"] = ckpt["fingerprint"]
     write_json(marginals, paths["marginals"])
     profiles = supported_profiles(tr.loc[a_tr.retained_mask], spec, cfg=cfg)
+    profiles.update(run_fields(args.run_type))
     profiles["fingerprint"] = ckpt["fingerprint"]
     write_json(profiles, os.path.join(args.out_dir, "supported_profiles.json"))
+    log.update(run_fields(args.run_type))
     log = safe_public_output(log)
     write_json(log, paths["train_log"])
     write_json(model_card(cfg, model, pre, log, args), paths["model_card"])
@@ -199,7 +205,9 @@ def _pre_dict(pre):
 
 
 def model_card(cfg, model, pre, log, args) -> dict:
+    from models.run_status import run_fields
     return {
+        **run_fields(args.run_type),
         "model": "ProxyPatient CVAE" + ("" if args.variant == "mlp" else f" ({args.variant} variant)"),
         "status": "MOCK SMOKE RUN - not a real model" if args.mock else "trained on NFHS-5 v2 train split",
         "intended_use": "Generate SYNTHETIC cohorts for population-level health awareness. "
@@ -244,6 +252,7 @@ def parse_args(argv=None):
     p.add_argument("--cpu", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     p.add_argument("--demo-profiles", action="store_true", help="construct supported MOCK demo profile cells")
+    p.add_argument("--run-type", choices=["quick", "full"], default="full")
     p.add_argument("--config")
     return p.parse_args(argv)
 

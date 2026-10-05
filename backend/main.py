@@ -35,6 +35,7 @@ from starlette.responses import Response
 
 from backend.generator import generate, ModelUnavailable, _load, FORBIDDEN_INPUT_CONDITIONS
 from backend.outcome_stat_stub import outcome_stat
+from models.run_status import run_fields
 MODEL_USED = "CVAE"
 
 from backend.schemas import (
@@ -123,7 +124,7 @@ def health():
     """System health check."""
     try:
         bundle, _ = _load()
-        return HealthResponse(mode="demo" if bundle.ckpt["is_mock"] else "real",
+        return HealthResponse(**run_fields(bundle.ckpt["run_type"]), mode="demo" if bundle.ckpt["is_mock"] else "real",
                               model_fingerprint=bundle.ckpt["fingerprint"])
     except ModelUnavailable as exc:
         return HealthResponse(status="unavailable", mode="unavailable", detail=str(exc))
@@ -182,7 +183,7 @@ def _response_fields(condition, df, stat):
     from models.privacy import safe_public_output
     diagnostics = safe_public_output(df.attrs["sampling"])
     return dict(condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
-                model_fingerprint=df.attrs["fingerprint"], demo=df.attrs["demo"],
+                model_fingerprint=df.attrs["fingerprint"], **run_fields(df.attrs["run_type"]),
                 banner="MOCK DEMO — not NFHS-5" if df.attrs["demo"] else None,
                 sampling_diagnostics={**diagnostics, "rejection_rate": diagnostics["first_pass_inconsistent_share"],
                                       "clipped_share": diagnostics["clipped_share"]})
@@ -267,7 +268,7 @@ def compare_scenarios(req: CompareRequest):
         results.append(ScenarioResult(label=scenario.label, delta_pp=delta_pp,
                                       **_response_fields(scenario.condition, df, stat)))
 
-    return CompareResponse(scenarios=results, model_fingerprint=df.attrs["fingerprint"])
+    return CompareResponse(**run_fields(df.attrs["run_type"]), scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 
 
 @app.get("/validation", tags=["Validation"])
@@ -352,15 +353,21 @@ def options():
 class DemoBannerMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
-        if os.environ.get("PP_DEMO_MOCK") != "1":
-            return response
+        try:
+            fields = run_fields(_load()[0].ckpt["run_type"])
+        except ModelUnavailable:
+            fields = run_fields("mock" if os.environ.get("PP_DEMO_MOCK") == "1" else None)
         banner = "MOCK DEMO — not NFHS-5; synthetic rates are not research results"
-        response.headers["X-ProxyPatient-Demo"] = banner.encode("ascii", "replace").decode()
+        response.headers["X-ProxyPatient-Status"] = fields["status_banner"]
+        if fields["demo"]:
+            response.headers["X-ProxyPatient-Demo"] = banner.encode("ascii", "replace").decode()
         if "application/json" in response.headers.get("content-type", ""):
             body = b"".join([chunk async for chunk in response.body_iterator])
             payload = json.loads(body)
             if isinstance(payload, dict):
-                payload.update(demo=True, banner=banner)
+                payload.update(fields)
+                if fields["demo"]:
+                    payload.update(banner=banner)
             headers = dict(response.headers)
             headers.pop("content-length", None)
             return Response(json.dumps(payload), status_code=response.status_code,

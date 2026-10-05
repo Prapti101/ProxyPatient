@@ -79,6 +79,10 @@ def _load():
             if pre != bundle.ckpt["preproc"]:
                 raise ModelUnavailable("Preprocessor does not match checkpoint")
             is_mock = bundle.ckpt.get("is_mock", bundle.ckpt.get("mock"))
+            from models.run_status import RUN_TYPES
+            run_type = bundle.ckpt.get("run_type")
+            if run_type not in RUN_TYPES or (run_type == "mock") != bool(is_mock):
+                raise ModelUnavailable("Checkpoint run_type missing, invalid or inconsistent with MOCK mode")
             if is_mock is not demo:
                 raise ModelUnavailable("MOCK checkpoints require PP_DEMO_MOCK=1; demo mode requires a MOCK checkpoint")
             fp = validate_checkpoint(bundle.ckpt, load_config())
@@ -243,6 +247,7 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
     df["elevated_glucose_proxy"] = (df["glucose_raw"] >= float(cfg["threshold_mg_dl"])).astype(int)
     df["is_synthetic"] = True
     df.attrs["fingerprint"] = bundle.ckpt["fingerprint"]
+    df.attrs["run_type"] = bundle.ckpt["run_type"]
     df.attrs["demo"] = bool(bundle.ckpt["is_mock"])
     df.attrs["sampling"] = {**gen.attrs.get("sampling", {}), "filled_from_marginals": filled,
                             "seed": int(seed), "label": "SYNTHETIC",

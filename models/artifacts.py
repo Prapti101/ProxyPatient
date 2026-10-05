@@ -49,6 +49,7 @@ def model_fingerprint(checkpoint):
     """Identity includes fitted parameters, preprocessing, configuration and mode."""
     digest = hashlib.sha256()
     metadata = {key: checkpoint[key] for key in ('preproc', 'cfg', 'hparams', 'is_mock', 'scope')}
+    metadata["run_type"] = checkpoint.get("run_type")
     digest.update(json.dumps(metadata, sort_keys=True, allow_nan=False).encode())
     for name, tensor in sorted(checkpoint['state_dict'].items()):
         import numpy as np
