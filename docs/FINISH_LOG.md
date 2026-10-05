@@ -19,3 +19,7 @@ R4: Imported ONLY the three added P3 files (all <5KB; no data-like additions); r
 2026-10-05 (Asia/Kolkata): Push attempt 4, p2-finish, R4 85ceafc: SUCCESS.
 
 R5: Started/completed marker states, explicit crash acknowledgement only before metrics, frozen artifact hashes and recovery receipt, exclusive directory locking. Completed and metrics-present runs cannot repeat; retraining remains prohibited after any final marker. Additional bug: final quick evaluation now retains the frozen checkpoint’s quick label rather than being relabelled full. DONE. Full suite: 100 passed, 0 failed/skipped. Regression also retains the thrown exception to verify locks release explicitly on failures.
+
+2026-10-05T10:40:28.380874+05:30: Push attempt 5, p2-finish, R5 5de5d48: SUCCESS.
+
+R6: Documented every endpoint, actual schema fields, eight full conditions, status/error/client behavior and preset confirmation flow. Captured executed mock API examples and complete mock pipeline ingestion. No frontend/client/package.json/src exists; client adjustment SKIPPED. External capture initially lacked PYTHONPATH; corrected launch path, no code defect. DONE. Full suite: 100 passed, 0 failed/skipped. Separate mock quick run and API example capture passed, including both complete report endpoints.
