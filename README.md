@@ -2,7 +2,13 @@
 
 Synthetic Scenario Exploration for Elevated Glucose (Proxy)
 
-ProxyPatient generates new synthetic cohorts with a conditional VAE trained on Indian NFHS-5 survey data. The displayed outcome is **elevated glucose (proxy)**: generated random capillary glucose at or above the threshold in `config.yaml` (currently 200 mg/dL). Scenario differences are descriptive, not causal effects. This is not a diagnosis, individual prediction, or treatment recommendation.
+ProxyPatient explores synthetic scenarios for **elevated glucose (proxy)**. Its main model is a trained conditional variational autoencoder (CVAE), designed to fit NFHS-5 India survey data. It generates new profiles and glucose readings; this checkout demonstrates the software with mock-trained weights, and claims no verified real-data model result.
+
+The user selects eight conditions: sex, age band, residence, wealth quintile, BMI band, hypertension, tobacco and alcohol. Supported state is optional. Starting from a full baseline, the user changes conditions and requests a synthetic cohort. Glucose is generated as the outcome, never entered as a condition or imputed.
+
+The API returns the elevated glucose (proxy) percentage with a 95% Wilson Monte Carlo interval, comparison differences from baseline, up to five labelled representative synthetic examples per scenario, run banners and validation-panel data when a compatible measured report exists. Real-mode examples are withheld unless a packaged nearest-record heuristic passes; mock examples carry a MOCK label. A client can display "Synthetic Cohort Generated", the total count and example cards. This repository contains the API and model workflow; a frontend/card renderer is not included.
+
+The outcome is generated glucose at or above the configured threshold (currently 200 mg/dL). The interval describes generated-cohort variation conditional on the fitted model. This is not a diagnosis, individual prediction, LLM or agent workflow, causal analysis, or model of change over time. GRU/CNN variants are optional ablations, and local token annotations are optional; the main model is the MLP CVAE. [Specification decisions](docs/SPEC_VS_BUILD.md) record differences from the supplied writeup excerpts.
 
 ## What we present / known limitations
 
@@ -46,7 +52,7 @@ The only partial-profile option is explicit demo/development `PP_ALLOW_PARTIAL_P
 | GET `/health` | Real/demo/unavailable readiness and model fingerprint |
 | GET `/schema`, `/options` | Raw-variable dictionary and supported model options |
 | GET `/profiles` | Full supported TRAIN profiles, each backed by at least 500 encoded rows |
-| POST `/generate`, `/compare` | Synthetic outcome summaries, provenance, scope and diagnostics |
+| POST `/generate`, `/compare` | Synthetic outcome summaries, bounded labelled examples, provenance and diagnostics |
 | GET `/validation`, `/model-comparison` | Verified packaged evaluation/model table, or explicit pending with null metrics |
 | POST `/parse` | Demo-only proposed conditions, negation handling, no confidence claim; requires confirmation |
 

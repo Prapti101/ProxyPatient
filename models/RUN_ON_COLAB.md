@@ -6,11 +6,12 @@ Do not upload respondent data to this task, an AI chat, or public hosting. Colab
 
 ## Prepare
 
-Use the fork's `main` after the presentation-slice branch is merged. During review use `p2-presentation-slice`; do not clone an obsolete development branch. Python 3.11/CPU has been verified:
+Use the fork's `main` after `p2-examples` is merged. During review use `p2-examples`; do not clone an obsolete development branch. Python 3.11/CPU has been verified:
 
 ```bash
 git clone https://github.com/dhruvvvgg/proxypatient-fork.git
 cd proxypatient-fork
+git switch p2-examples
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python -r requirements.txt --torch-backend cpu
 source .venv/bin/activate
@@ -30,7 +31,7 @@ python -m models.run_all --data-dir /private/processed --out-dir /private/pp-qui
 python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --full
 ```
 
-Use separate output directories so the quick trial remains inspectable. Quick keeps all integrity/unit/per-sex/state guards: it does not lower the real 5,000 complete rows per sex requirement. The runner is CPU-only; no T4 runtime or memory promise is made. Full uses config defaults. Set epochs/batch size/seed/optional generated variables in `config.yaml` before freezing it. Individual training-stage flags override config only when explicitly supplied.
+Use separate output directories so the quick trial remains inspectable. Quick keeps integrity/unit/state guards and requires 2,000 complete encoded rows per sex; full retains the 5,000-per-sex requirement. The runner is CPU-only; no T4 runtime or memory promise is made. Full uses config defaults. Set epochs/batch size/seed/optional generated variables in `config.yaml` before freezing it. Individual training-stage flags override config only when explicitly supplied.
 
 Order: step0 -> DAE benchmark -> CVAE -> TVAE/CTGAN -> validation evaluation -> package. Stage failures stop the run. If an optional benchmark or baseline cannot be run, explicitly use `--skip-dae-benchmark` or `--skip-baselines`; omissions are recorded and are not successes. Inspect requested/retained condition coverage, clipping, tail fidelity, subgroup metrics, and the comparison's differing data/state use. Do not claim a winning architecture from this unequal setup alone.
 
@@ -39,10 +40,10 @@ Each stage records runtime and peak RSS. `safe_outputs/` has aggregate JSON/Mark
 ## Serve and freeze
 
 ```bash
-PP_MODEL_DIR=/private/pp-full/private_outputs python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+PP_MODEL_DIR=/private/pp-full/private_outputs PP_REPORT_DIR=/private/pp-full/safe_outputs python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Do not set `PP_DEMO_MOCK` for real serving. Missing/mock/incompatible artifacts fail closed. Choose full supported `/profiles` and use `/options` for actual state codes. `/validation` remains pending unless a separate explicit-status `validation_report.json` is supplied in `PP_MODEL_DIR`.
+Do not set `PP_DEMO_MOCK` for real serving. Missing/mock/incompatible artifacts fail closed. Choose full supported `/profiles` and use `/options` for actual state codes. `/validation` reads the checksum/fingerprint-bound development report in safe_outputs, or honestly remains pending. Real-mode examples additionally require its CVAE nearest-record heuristic to pass; see docs/API_CONTRACT.md.
 
 After selecting one model/config on VAL, freeze all artifacts. Only then:
 
@@ -50,4 +51,4 @@ After selecting one model/config on VAL, freeze all artifacts. Only then:
 python -m models.run_all --data-dir /private/processed --out-dir /private/pp-full --final-test --i-understand-this-is-the-single-final-run
 ```
 
-The exclusive final-stage marker is created before evaluation and is not removed on failure. Investigate failures without repeating model selection or deleting the marker. This guard is per output directory; copies of files cannot be globally controlled by code. See `docs/TEST_SPLIT_POLICY.md` for prior aggregate/DAE exposure and the honest held-out description.
+The exclusive final-stage marker is created before evaluation and is not removed on failure. A confirmed crash before metrics may retry only with unchanged frozen artifacts and `--confirm-previous-final-run-crashed`. Completed metrics cannot repeat. Investigate failures without repeating model selection or deleting the marker. This guard is per output directory; copies of files cannot be globally controlled by code. See `docs/TEST_SPLIT_POLICY.md` for prior aggregate/DAE exposure and the honest held-out description.

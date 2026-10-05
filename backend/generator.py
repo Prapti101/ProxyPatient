@@ -23,8 +23,8 @@ demo/development partial requests fill independent marginals and report a warnin
 Returns n NEW rows sampled from the CVAE decoder, in ORIGINAL units: the
 conditions, generated variables, glucose_raw (mg/dL), elevated_glucose_proxy
 (derived from the generated glucose_raw and config threshold) and
-is_synthetic=True. Deterministic per seed; CPU; writes nothing to disk unless
-row export is disabled (including MOCK samples).
+is_synthetic=True. Deterministic per seed; CPU; writes no rows to disk.
+Bulk row export is disabled; the API exposes only bounded labelled examples.
 """
 
 import json
@@ -254,5 +254,5 @@ def generate(condition: dict, n: int = 1000, seed: int = 42,
                             "warning": "Independent marginal fill (development only)" if missing else None}
 
     if export_sample:
-        raise ValueError("Row export is disabled; MOCK samples must never be persisted")
+        raise ValueError("Bulk row export is disabled; samples must never be persisted")
     return df
