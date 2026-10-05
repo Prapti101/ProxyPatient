@@ -210,6 +210,7 @@ api:
     - GET  /profiles
     - POST /generate
     - POST /compare
+    - GET  /model-comparison
     - GET  /validation
     - POST /parse      # demo-only rule-based parser
 

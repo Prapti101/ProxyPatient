@@ -210,3 +210,13 @@ class ParseResponse(StrictModel):
     parser: str = 'rule-based demo parser'
     requires_confirmation: bool = True
     unresolved: list[str] = Field(default_factory=list)
+
+
+class ReportResponse(RunStatus):
+    status: str
+    metrics: Optional[dict[str, Any]] = None
+    models: Optional[dict[str, Any]] = None
+    evaluation_scope: Optional[dict[str, Any]] = None
+    real_reference: Optional[dict[str, Any]] = None
+    model_fingerprint: Optional[str] = None
+    note: str

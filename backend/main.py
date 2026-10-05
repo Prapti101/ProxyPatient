@@ -43,7 +43,7 @@ from backend.schemas import (
     CompareRequest,  CompareResponse,  ScenarioResult,
     HealthResponse, ProfilesResponse, ProfileEntry,
     ParseRequest, ParseResponse, Condition,
-    DISCLAIMER
+    DISCLAIMER, ReportResponse
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,16 +104,6 @@ def load_assets():
         logger.info("Schema and aggregates_v2 loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load assets: {e}")
-
-    val_path = os.path.join(DOCS_DIR, "validation_report.json")
-    if os.path.exists(val_path):
-        with open(val_path, encoding="utf-8") as f:
-            _validation = json.load(f)
-        logger.info("Validation report loaded.")
-    else:
-        logger.warning("validation_report.json not found — P3 has not delivered it yet.")
-        _validation = {"status": "pending", "note": "Awaiting P3 (Validation Lead)."}
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ENDPOINTS
@@ -271,22 +261,18 @@ def compare_scenarios(req: CompareRequest):
     return CompareResponse(**run_fields(df.attrs["run_type"]), scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 
 
-@app.get("/validation", tags=["Validation"])
+@app.get("/validation", response_model=ReportResponse, tags=["Validation"])
 def get_validation():
-    """
-    Return the validation report produced by P3 (Validation Lead).
-    Includes fidelity scores, KS/Wasserstein stats, model comparison table.
-    Returns 'pending' if P3 has not yet delivered the report.
-    """
-    root = os.environ.get("PP_MODEL_DIR", os.path.join(BASE_DIR, "models"))
-    path = os.path.join(root, "validation_report.json")
-    if not os.path.isfile(path):
-        return {"status": "pending", "note": "No real-run validation report supplied"}
-    with open(path, encoding="utf-8") as f:
-        report = json.load(f)
-    if report.get("status") not in ("complete", "pending"):
-        return {"status": "pending", "note": "Validation adapter requires explicit complete/pending status"}
-    return report
+    """Checksum-verified packaged development metrics, or an explicit pending state."""
+    from backend.reports import packaged_report
+    return packaged_report()
+
+
+@app.get("/model-comparison", response_model=ReportResponse, tags=["Validation"])
+def get_model_comparison():
+    """Measured model table only; no predeclared winner."""
+    from backend.reports import packaged_report
+    return packaged_report(comparison=True)
 
 
 @app.post("/parse", response_model=ParseResponse, tags=["NLP"])

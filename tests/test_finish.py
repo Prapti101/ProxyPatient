@@ -83,3 +83,14 @@ def test_quick_settings_and_pipeline_stage_flags(monkeypatch, tmp_path):
     assert '--quick' in calls[1] and str(cfg['quick']['baseline_train_rows']) in calls[1]
     assert str(cfg['quick']['baseline_epochs']) in calls[1]
     assert str(cfg['quick']['evaluation_rows']) in calls[2]
+
+
+def test_reports_pending_missing_or_invalid_package(real_generator_env, tmp_path, monkeypatch):
+    from backend.reports import packaged_report
+    monkeypatch.setenv('PP_REPORT_DIR', str(tmp_path))
+    for comparison in (False, True):
+        payload = packaged_report(comparison)
+        assert payload['status'] == 'pending' and payload['metrics'] is None and payload['models'] is None
+        assert payload['run_type'] == 'mock'
+    (tmp_path/'manifest.json').write_text('{bad')
+    assert packaged_report()['status'] == 'pending'

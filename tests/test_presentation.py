@@ -213,7 +213,7 @@ def test_final_run_requires_explicit_acknowledgement():
         parse_args(['--mock', '--final-test'])
 
 
-def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path):
+def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path, monkeypatch):
     import json
     from models.run_all import main
     from models.privacy import small_count_paths
@@ -225,6 +225,29 @@ def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path):
         assert not small_count_paths(json.loads(path.read_text())), path.name
     manifest = json.loads((tmp_path/'safe_outputs/manifest.json').read_text())
     assert manifest['mock'] is True
+    assert manifest['run_type'] == 'mock'
+    assert (tmp_path/'safe_outputs/timings.json').exists()
+    monkeypatch.setenv('PP_MODEL_DIR', str(tmp_path/'private_outputs'))
+    monkeypatch.setenv('PP_REPORT_DIR', str(tmp_path/'safe_outputs'))
+    monkeypatch.setenv('PP_DEMO_MOCK', '1')
+    monkeypatch.delenv('PP_CVAE_WEIGHTS', raising=False)
+    monkeypatch.delenv('PP_CONDITION_MARGINALS', raising=False)
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    with TestClient(app) as client:
+        for endpoint in ('/validation', '/model-comparison'):
+            payload = client.get(endpoint).json()
+            assert payload['status'] == 'complete', payload
+            assert payload['run_type'] == 'mock' and payload['status_banner'] == 'DEMO (mock data)'
+            assert set(payload['models']) == {'CVAE', 'TVAE', 'CTGAN'}
+            assert not small_count_paths(payload)
+        evaluation = client.get('/validation').json()['metrics']
+        assert 'marginals' in evaluation['models']['CVAE']
+        assert 'wasserstein' in evaluation['models']['CVAE']['marginals']['glucose_raw']
+        monkeypatch.setenv('PP_REPORT_DIR', str(tmp_path/'missing'))
+        payload = client.get('/validation').json()
+        assert payload['status'] == 'pending' and payload['metrics'] is None
+
     expected = {p.name for p in (tmp_path/'safe_outputs').iterdir() if p.suffix in ('.json', '.md') and p.name != 'manifest.json'}
     assert {entry['file'] for entry in manifest['files']} == expected
     from models.common import sha256_file
