@@ -20,5 +20,6 @@ Additional implementation decisions needing private evidence:
 - Which optional generated variables have adequate per-sex measurement coverage after preprocessing/encoding? Height/weight cannot be assumed available because a mock supplies them.
 - Which state codes survive complete encoding with privacy-safe support? Unseen/unsupported validation states fail instead of being reassigned.
 - Does a DAE prediction failure reflect invalid private artifacts, out-of-domain codes or the fitted model? Benchmark comparison cannot silently drop failed predictions.
-- What should happen after a partial final-run failure? The frozen-directory marker remains; team review is needed without rerunning model selection or deleting the marker to tune results.
+- P1: Which DAE script produced the private imputed files: legacy v1 or train_dae_v2.py, and from which commit/configuration? Did that actual DAE run ever train on, infer on or otherwise examine test rows? The committed legacy source trains on TRAIN and imputes combined; the private execution history is unknown.
+- What human review is needed after a started final run that already wrote metrics? Automatic crash recovery is allowed only before metrics and with unchanged frozen artifacts; completed always blocks. Never delete the marker for model selection.
 - Which publication/disclosure review applies to fitted preprocessing, marginals, supported profiles, weights and aggregate reports? safe_outputs means structurally aggregate-only, not automatically authorized for release.

@@ -27,3 +27,7 @@ R6: Documented every endpoint, actual schema fields, eight full conditions, stat
 2026-10-05T10:43:04.304860+05:30: Push attempt 6, p2-finish, R6 bcbeeb3: SUCCESS.
 
 R7: Added preset/mock-report/private-quick runbook and evidence-based viva notes, including honest separate-checkpoint demo/report behavior, metric meanings, limitations and test history. No invented real scores or winner. DONE. Full suite: 100 passed, 0 failed/skipped; commands align with captured mock examples and executed pipeline.
+
+2026-10-05T10:45:05.559261+05:30: Push attempt 7, p2-finish, R7 c2302b9: SUCCESS.
+
+R8: Updated run-type/quick/full/report/demo guidance, external P4 contract backlog, eight-condition consistency and open questions. Added explicit P1 question about private DAE script/commit and actual test-row exposure; no provenance guess. Historical overnight/review records remain marked historical rather than rewritten as current facts. DONE. Full suite: 100 passed, 0 failed/skipped; no implementation guards weakened.

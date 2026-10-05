@@ -13,7 +13,7 @@ python -m models.run_all --data-dir /private/processed --out-dir /private/pp-ful
 ```
 
 5. Inspect stage timings/peak memory, manifest/unit/support failures, dropped optional variables, per-sex encoding exclusions, supported state/profile cells, requested versus retained condition coverage, finite-target DAE comparison, conditional-rate fidelity, tail/clipping behavior, and disclosure limitations. Compare models only with the stated different data/state setup. A privacy denominator of 30 is not a scientific adequacy certificate.
-6. Keep `private_outputs/`, respondent files and model weights private. Only reviewed aggregate `safe_outputs/*.json/*.md` may be candidates for public commit, subject to the actual agreement. The real package populates `models/model_card.json`; never replace pending fields with manually invented numbers. Formal P3 validation remains separate/pending.
+6. Keep `private_outputs/`, respondent files and model weights private. Only reviewed aggregate `safe_outputs/*.json/*.md` may be candidates for public commit, subject to the actual agreement. The real package populates `models/model_card.json`; never replace pending fields with manually invented numbers. The API reads matching safe_outputs through PP_REPORT_DIR; private-data validation remains unverified. See API_CONTRACT.md and DEMO_RUNBOOK.md.
 7. Serve through `PP_MODEL_DIR=/private/pp-full/private_outputs`, require full profiles, and inspect health/fingerprint/mode. The explicit mock demo requires `PP_DEMO_MOCK=1`; real mode rejects it.
 8. Freeze model, config and selection decisions. Execute the acknowledged final command once on the frozen full-run directory:
 
