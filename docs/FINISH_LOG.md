@@ -35,3 +35,25 @@ R8: Updated run-type/quick/full/report/demo guidance, external P4 contract backl
 2026-10-05 (Asia/Kolkata): Push attempt 8, p2-finish, R8 5c3fa70: SUCCESS.
 
 Final self-review: Fixed full baseline training admitting rows rejected by complete encoding, missing shared checkpoint run-type validation/package type mismatch, invalid parsed state yielding a server error instead of 422, malformed model-table ingestion, and empty-marker recovery bypass. Enum now appears in the machine-readable response schema. These are scoped integrity/contract fixes with new regressions; no test or threshold weakened. DONE. Full suite: 104 passed, 0 failed/skipped in 40.41 seconds, one upstream TestClient deprecation warning. All valid serving combinations now exercise health, generate, compare and both report endpoints; stale/malformed packages are pending. Exact default --mock --quick completed; packaged API ingestion, hash, row-export and small-cell scans passed.
+
+## Authoritative implementation push receipt
+
+Every implementation commit was immediately followed by one successful fork push, with no retries or WIP pushes. The times below are recorded commit timestamps immediately preceding each push (push completion seconds were not separately persisted). Earlier per-item receipts record the observed outcomes.
+
+| Attempt | Time (Asia/Kolkata; commit immediately before push) | Branch | Tip | Outcome |
+|---|---|---|---|---|
+| 1 | 2026-10-05T10:25:54+05:30 | p2-finish | 2f51c59 | SUCCESS |
+| 2 | 2026-10-05T10:28:30+05:30 | p2-finish | c3b4f88 | SUCCESS |
+| 3 | 2026-10-05T10:30:30+05:30 | p2-finish | cc82ca2 | SUCCESS |
+| 4 | 2026-10-05T10:34:03+05:30 | p2-finish | 85ceafc | SUCCESS |
+| 5 | 2026-10-05T10:37:50+05:30 | p2-finish | 5de5d48 | SUCCESS |
+| 6 | 2026-10-05T10:41:32+05:30 | p2-finish | bcbeeb3 | SUCCESS |
+| 7 | 2026-10-05T10:44:10+05:30 | p2-finish | c2302b9 | SUCCESS |
+| 8 | 2026-10-05T10:46:35+05:30 | p2-finish | 5c3fa70 | SUCCESS |
+| 9 | 2026-10-05T10:51:01+05:30 | p2-finish | 0465917 | SUCCESS |
+
+Final report publication follows its commit; its self-publication outcome is confirmed in the final response and the remote-tracking SHA equality check. No further implementation changes follow this receipt.
+
+Additional verification: live port-8000 preset demo passed readiness/profiles/generation and pending panel checks. Saved cloud startup draft now requires p2-finish and documents mock report/preset separation; successful save requires publishing in environment settings. Local origin fetch configuration now tracks p2-finish so synchronization can be verified; initial narrow main-only refspec did not create the remote-tracking ref automatically. No credentials/network policy changes.
+
+2026-10-05T10:56:54.833107+05:30: Final report suite: 104 passed, 0 failed/skipped in 42.48 seconds; one dependency warning. Publication attempt 10 will immediately push the report commit to p2-finish. Its post-commit time/result/remote SHA receipt is saved outside the checkout at /workspace/proxypatient-finish/delivery_receipt.json and confirmed in the final response, avoiding a self-referential receipt commit.
