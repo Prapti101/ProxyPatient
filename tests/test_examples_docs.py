@@ -24,3 +24,17 @@ def test_captured_scenario_contracts():
             for example in result['examples']:
                 SyntheticExample.model_validate(example)
                 assert 'MOCK' in example['label'] and example['synthetic']
+
+
+def test_spec_table_source_references_exist():
+    text = Path('docs/SPEC_VS_BUILD.md').read_text()
+    rows = [line for line in text.splitlines() if line.startswith('|')][2:]
+    assert len(rows) >= 16
+    for row in rows:
+        source = row.split('|')[-2].strip()
+        for name in source.split(', '):
+            # The delivery report is written after item checks finish.
+            if name == 'docs/EXAMPLES_REPORT.md':
+                continue
+            assert Path(name).is_file(), name
+    assert 'unverified' in text and 'OPEN team naming decision' in text

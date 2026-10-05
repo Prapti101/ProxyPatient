@@ -22,3 +22,7 @@ X3: updated contract with executed mock generate/compare responses, plain-langua
 X3 capture attempt 1 failed because regex replacement interpreted JSON unicode escapes; no documents were changed. Changed replacement to literal callback and recaptured executed responses. Initial suite correctly detected stale examples (109 passed, one failed).
 
 X2 push: 890cef5 succeeded on attempt 1. X3 DONE: full suite 110 passed, zero failed/skipped, one existing dependency warning. Generate/compare contract captures executed successfully; documentation contract regression passes. Push follows this commit.
+
+X4: specification table derived from code and available excerpts; full unseen writeup/UI marked unverified. Naming remains an open team decision. Default generated BP remains off; Wilson replaces the writeup bootstrap. No external data or optional local BERT model available.
+
+X3 push: d09e1e2 succeeded on attempt 1. X4 DONE: full suite 111 passed, zero failed/skipped, one existing dependency warning. Tracked-file leak check empty; active wording and new-commit hygiene clean. Inherited history exceptions documented separately, never rewritten. Push follows this commit.
