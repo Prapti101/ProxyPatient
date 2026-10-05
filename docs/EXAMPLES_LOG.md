@@ -26,3 +26,7 @@ X2 push: 890cef5 succeeded on attempt 1. X3 DONE: full suite 110 passed, zero fa
 X4: specification table derived from code and available excerpts; full unseen writeup/UI marked unverified. Naming remains an open team decision. Default generated BP remains off; Wilson replaces the writeup bootstrap. No external data or optional local BERT model available.
 
 X3 push: d09e1e2 succeeded on attempt 1. X4 DONE: full suite 111 passed, zero failed/skipped, one existing dependency warning. Tracked-file leak check empty; active wording and new-commit hygiene clean. Inherited history exceptions documented separately, never rewritten. Push follows this commit.
+
+X4 push: 52e54db succeeded on attempt 1. Delivery report prepared; X1–X4 DONE, client SKIPPED (absent), literal inherited-history hygiene BLOCKED without a shared-history rewrite. Final suite and report push follow.
+
+Final delivery suite: 111 passed, zero failed/skipped, one existing dependency warning. All specification source links, including this delivery report, validated. No new dependencies or environment changes required. Final report commit is pushed immediately and remote synchronization checked afterward.
