@@ -11,16 +11,17 @@ Endpoints:
     GET  /profiles     -> baseline reference profiles (from aggregates.json)
     POST /generate     -> generate synthetic cohort + compute outcome stat
     POST /compare      -> compare multiple what-if scenarios
-    GET  /validation   -> validation report (from P3's validation_report.json)
-    POST /parse        -> (optional) parse natural language condition (P3's parser)
+    GET  /validation   -> verified packaged development report
+    GET  /model-comparison -> measured per-model metrics
+    POST /parse        -> demo-only guarded rule-based proposals
 
 RULES ENFORCED:
   - Glucose is never a conditioning input (blocked in schemas.py).
-  - Raw data rows are never returned.
+  - Real respondent rows and bulk synthetic exports are never returned.
   - Outcome always labelled "elevated glucose (proxy)".
   - Disclaimer always included in every response that shows a rate.
   - All numbers come from code — nothing hardcoded.
-  - Switch from stub to real model: change 1 import line below.
+  - Run provenance and compatible private artifacts are required.
 """
 
 import os
@@ -30,27 +31,21 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
-# ── Generator: stub by default; P2's CVAE when env var PP_GENERATOR=real ─────
-if os.environ.get("PP_GENERATOR", "").lower() == "real":
-    from backend.generator      import generate      # REAL: P2's CVAE
-    MODEL_USED = "CVAE"
-else:
-    from backend.generator_stub import generate      # STUB
-    MODEL_USED = "CVAE-stub (set PP_GENERATOR=real for P2 model)"
-
-# ── Swap these two lines when P3 delivers the real outcome_stat ──────────────
-from backend.outcome_stat_stub import outcome_stat   # STUB: replace with real
-# from backend.outcome_stat    import outcome_stat    # REAL: P3's implementation
+from backend.generator import generate, ModelUnavailable, _load, FORBIDDEN_INPUT_CONDITIONS
+from backend.outcome_stat_stub import outcome_stat
+from models.run_status import run_fields
+MODEL_USED = "CVAE"
 
 from backend.schemas import (
     GenerateRequest, GenerateResponse, OutcomeStat,
     CompareRequest,  CompareResponse,  ScenarioResult,
     HealthResponse, ProfilesResponse, ProfileEntry,
     ParseRequest, ParseResponse, Condition,
-    DISCLAIMER
+    DISCLAIMER, ReportResponse
 )
-from backend.generator_stub import FORBIDDEN_INPUT_CONDITIONS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SETUP
@@ -61,14 +56,24 @@ logger = logging.getLogger("proxypatient")
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCS_DIR = os.path.join(BASE_DIR, "docs")
 
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(application):
+    load_assets()
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title       = "ProxyPatient API",
     description = (
-        "Synthetic Patient Scenario Generation for Diabetes Risk Awareness. "
+        "Synthetic Scenario Exploration for Elevated Glucose (Proxy). "
         "STRICTLY generative AI. NOT a diagnostic tool. "
         "Source: NFHS-5 India (2019-21)."
     ),
-    version     = "1.0.0",
+    version     = "2.0.0",
     docs_url    = "/docs",
 )
 
@@ -85,22 +90,11 @@ _schema     = None
 _aggregates = None
 _validation = None
 
-# Load glucose threshold from config.yaml (never hardcode)
-def _load_config():
-    config_path = os.path.join(os.path.dirname(DOCS_DIR), "config.yaml")
-    try:
-        import yaml
-        with open(config_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        return cfg
-    except Exception:
-        return {}
-
-_cfg  = _load_config()
-RULE  = {"threshold_mg_dl": _cfg.get("outcome", {}).get("threshold_mg_dl", 200)}
+from models.common import load_config
+_cfg = load_config()
+RULE = {"threshold_mg_dl": _cfg["outcome"]["threshold_mg_dl"]}
 
 
-@app.on_event("startup")
 def load_assets():
     global _schema, _aggregates, _validation
     try:
@@ -112,16 +106,6 @@ def load_assets():
     except Exception as e:
         logger.error(f"Failed to load assets: {e}")
 
-    val_path = os.path.join(DOCS_DIR, "validation_report.json")
-    if os.path.exists(val_path):
-        with open(val_path, encoding="utf-8") as f:
-            _validation = json.load(f)
-        logger.info("Validation report loaded.")
-    else:
-        logger.warning("validation_report.json not found — P3 has not delivered it yet.")
-        _validation = {"status": "pending", "note": "Awaiting P3 (Validation Lead)."}
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # ENDPOINTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +113,12 @@ def load_assets():
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 def health():
     """System health check."""
-    return HealthResponse()
+    try:
+        bundle, _ = _load()
+        return HealthResponse(**run_fields(bundle.ckpt["run_type"]), mode="demo" if bundle.ckpt["is_mock"] else "real",
+                              model_fingerprint=bundle.ckpt["fingerprint"])
+    except ModelUnavailable as exc:
+        return HealthResponse(status="unavailable", mode="unavailable", detail=str(exc))
 
 
 @app.get("/schema", tags=["Data"])
@@ -141,62 +130,55 @@ def get_schema():
     """
     if _schema is None:
         raise HTTPException(503, "Schema not loaded. Check server startup logs.")
-    return _schema
+    return {**_schema, "supported_state_codes": _state_options()}
 
 
 @app.get("/profiles", response_model=ProfilesResponse, tags=["Data"])
 def get_profiles():
     """
     Return baseline reference profiles for the UI's Explore page.
-    All rates come from the precomputed aggregates.json (no raw rows).
-    Only cells with n >= 30 are shown.
+    Full profiles come from encoded TRAIN joint cells with at least 500 rows.
     """
-    if _aggregates is None:
-        raise HTTPException(503, "Aggregates not loaded.")
+    bundle, _ = _load_or_503()
+    root = os.path.dirname(__import__("backend.generator", fromlist=["_paths"])._paths()[0])
+    path = os.path.join(root, "supported_profiles.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            assets = json.load(f)
+        if assets.get("fingerprint") != bundle.ckpt["fingerprint"]:
+            raise ValueError("Supported profiles fingerprint mismatch")
+        if len(assets["profiles"]) < 3:
+            raise ValueError("Fewer than three supported TRAIN profiles; each requires 500 encoded rows")
+        from backend.schemas import FULL_KEYS
+        for profile in assets["profiles"]:
+            parsed = Condition(**profile["condition"])
+            if profile["n_train"] < 500 or any(getattr(parsed, key) is None for key in FULL_KEYS):
+                raise ValueError("Invalid or under-supported full TRAIN profile")
+        return ProfilesResponse(profiles=[ProfileEntry(**p) for p in assets["profiles"]])
+    except (OSError, ValueError, KeyError) as exc:
+        raise HTTPException(503, str(exc)) from exc
 
-    profiles = []
 
-    # Overall baseline
-    overall = _aggregates.get("overall", {})
-    if not overall.get("suppressed"):
-        profiles.append(ProfileEntry(
-            label       = "Overall Population",
-            condition   = {},
-            description = (
-                f"All NFHS-5 respondents with glucose readings. "
-                f"n={overall.get('n', 'N/A'):,}. "
-                f"Elevated glucose (proxy) rate: "
-                f"{round(overall.get('rate', 0) * 100, 2)}%"
-            )
-        ))
+def _load_or_503():
+    try:
+        return _load()
+    except ModelUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
 
-    # By sex
-    for sex_key, sex_label in [("female", "Women"), ("male", "Men")]:
-        entry = _aggregates.get("by_sex", {}).get(sex_key, {})
-        if not entry.get("suppressed") and entry.get("rate") is not None:
-            profiles.append(ProfileEntry(
-                label       = f"{sex_label} (All Ages)",
-                condition   = {"sex": sex_key},
-                description = (
-                    f"n={entry.get('n', 0):,}. "
-                    f"Rate: {round(entry.get('rate', 0) * 100, 2)}%"
-                )
-            ))
 
-    # By residence
-    for res in ["urban", "rural"]:
-        entry = _aggregates.get("by_residence", {}).get(res, {})
-        if not entry.get("suppressed") and entry.get("rate") is not None:
-            profiles.append(ProfileEntry(
-                label       = f"{res.capitalize()} Residents",
-                condition   = {"residence": res},
-                description = (
-                    f"n={entry.get('n', 0):,}. "
-                    f"Rate: {round(entry.get('rate', 0) * 100, 2)}%"
-                )
-            ))
-
-    return ProfilesResponse(profiles=profiles)
+def _response_fields(condition, df, stat, n_examples=3, scenario_id="S1"):
+    from models.common import age_band_label, parse_age_band, load_config
+    effective = condition.model_dump(exclude_none=True)
+    if "sex" in effective and "age_band" in effective:
+        effective["age_band"] = age_band_label(load_config(), effective["sex"], parse_age_band(load_config(), effective["age_band"]))
+    from models.privacy import safe_public_output
+    diagnostics = safe_public_output(df.attrs["sampling"])
+    from backend.examples import example_fields
+    return dict(**example_fields(df, n_examples, scenario_id), condition=condition, effective_conditions=effective, outcome_stat=OutcomeStat(**stat),
+                model_fingerprint=df.attrs["fingerprint"], **run_fields(df.attrs["run_type"]),
+                banner="MOCK DEMO — not NFHS-5" if df.attrs["demo"] else None,
+                sampling_diagnostics={**diagnostics, "rejection_rate": diagnostics["first_pass_inconsistent_share"],
+                                      "clipped_share": diagnostics["clipped_share"]})
 
 
 @app.post("/generate", response_model=GenerateResponse, tags=["Scenarios"])
@@ -210,7 +192,7 @@ def generate_cohort(req: GenerateRequest):
       - Rate is computed from generated data, never hardcoded.
       - Disclaimer always included.
     """
-    condition_dict = req.condition.dict(exclude_none=True)
+    condition_dict = req.condition.model_dump(exclude_none=True)
 
     # Extra safety: block glucose conditioning even if schema validation missed it
     for key in condition_dict:
@@ -224,8 +206,10 @@ def generate_cohort(req: GenerateRequest):
     try:
         logger.info(f"Generating cohort: n={req.n}, condition={condition_dict}")
         df = generate(condition=condition_dict, n=req.n, seed=req.seed)
+    except ModelUnavailable as e:
+        raise HTTPException(503, str(e))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(422, str(e))
     except Exception as e:
         logger.error(f"Generation error: {e}")
         raise HTTPException(500, f"Generation failed: {str(e)}")
@@ -236,11 +220,7 @@ def generate_cohort(req: GenerateRequest):
         logger.error(f"Outcome stat error: {e}")
         raise HTTPException(500, f"Outcome computation failed: {str(e)}")
 
-    return GenerateResponse(
-        condition    = req.condition,
-        outcome_stat = OutcomeStat(**stat),
-        model_used   = MODEL_USED
-    )
+    return GenerateResponse(**_response_fields(req.condition, df, stat, req.n_examples))
 
 
 @app.post("/compare", response_model=CompareResponse, tags=["Scenarios"])
@@ -252,8 +232,8 @@ def compare_scenarios(req: CompareRequest):
     results = []
     baseline_rate = None
 
-    for scenario in req.scenarios:
-        condition_dict = scenario.condition.dict(exclude_none=True)
+    for scenario_index, scenario in enumerate(req.scenarios, 1):
+        condition_dict = scenario.condition.model_dump(exclude_none=True)
 
         for key in condition_dict:
             if key in FORBIDDEN_INPUT_CONDITIONS:
@@ -264,6 +244,8 @@ def compare_scenarios(req: CompareRequest):
         try:
             df   = generate(condition=condition_dict, n=scenario.n, seed=scenario.seed)
             stat = outcome_stat(df, rule=RULE, seed=scenario.seed)
+        except ModelUnavailable as e:
+            raise HTTPException(503, str(e))
         except ValueError as e:
             raise HTTPException(400, f"Scenario '{scenario.label}': {e}")
         except Exception as e:
@@ -275,63 +257,76 @@ def compare_scenarios(req: CompareRequest):
         delta_pp = round((stat["rate"] - baseline_rate) * 100, 4) \
                    if baseline_rate is not None else None
 
-        results.append(ScenarioResult(
-            label        = scenario.label,
-            condition    = scenario.condition,
-            outcome_stat = OutcomeStat(**stat),
-            delta_pp     = delta_pp
-        ))
+        results.append(ScenarioResult(label=scenario.label, delta_pp=delta_pp,
+                                      **_response_fields(scenario.condition, df, stat, scenario.n_examples, f"S{scenario_index}")))
 
-    return CompareResponse(scenarios=results)
+    return CompareResponse(**run_fields(df.attrs["run_type"]), scenarios=results, model_fingerprint=df.attrs["fingerprint"])
 
 
-@app.get("/validation", tags=["Validation"])
+@app.get("/validation", response_model=ReportResponse, tags=["Validation"])
 def get_validation():
-    """
-    Return the validation report produced by P3 (Validation Lead).
-    Includes fidelity scores, KS/Wasserstein stats, model comparison table.
-    Returns 'pending' if P3 has not yet delivered the report.
-    """
-    return _validation
+    """Checksum-verified packaged development metrics, or an explicit pending state."""
+    from backend.reports import packaged_report
+    return packaged_report()
 
 
-@app.post("/parse", tags=["NLP"])
+@app.get("/model-comparison", response_model=ReportResponse, tags=["Validation"])
+def get_model_comparison():
+    """Measured model table only; no predeclared winner."""
+    from backend.reports import packaged_report
+    return packaged_report(comparison=True)
+
+
+@app.post("/parse", response_model=ParseResponse, tags=["NLP"])
 def parse_condition(req: ParseRequest):
-    """
-    (Optional) Parse a natural language condition string into a Condition object.
-    Implemented by P3 using BERT. Returns a basic rule-based parse as stub.
-    """
-    text  = req.text.lower()
-    cond  = {}
+    """Demo-only rule-based parser. Returns proposals for confirmation; runs nothing."""
+    if os.environ.get("PP_DEMO_MOCK") != "1":
+        raise HTTPException(403, "Rule-based parser is demo-only; select explicit full conditions in real mode")
+    from backend.parser import propose
+    return propose(req)
 
-    # Rule-based stub — P3 replaces with BERT parser
-    if "female" in text or "women" in text or "woman" in text:
-        cond["sex"] = "female"
-    elif "male" in text or "men" in text or "man" in text:
-        cond["sex"] = "male"
 
-    if "urban" in text:
-        cond["residence"] = "urban"
-    elif "rural" in text:
-        cond["residence"] = "rural"
+def _state_options():
+    from backend.generator import _load
+    try:
+        return _load()[0].spec.state_codes
+    except RuntimeError:
+        return []
 
-    for band in ["15-24", "25-34", "35-49", "35-54"]:
-        if band in text:
-            cond["age_band"] = band
-            break
 
-    if "tobacco" in text or "smok" in text:
-        cond["tobacco"] = "1"
-    if "alcohol" in text or "drink" in text:
-        cond["alcohol"] = "1"
+@app.get("/options", tags=["Data"])
+def options():
+    from backend.schemas import FULL_KEYS
+    return {"state": _state_options(), "sex": [0, 1], "age_band": _cfg["whatif_options"]["age_band"],
+            "residence": _cfg["whatif_options"]["residence"]["options"],
+            "wealth_quintile": [1, 2, 3, 4, 5], "bmi_band": list(_cfg["bmi"]["bands"]),
+            "hypertension": [0, 1], "tobacco": [0, 1], "alcohol": [0, 1],
+            "required_profile_keys": list(FULL_KEYS)}
 
-    if "obese" in text:
-        cond["bmi_band"] = "obese"
-    elif "overweight" in text:
-        cond["bmi_band"] = "overweight"
 
-    return ParseResponse(
-        parsed_condition = Condition(**cond),
-        raw_text         = req.text,
-        confidence       = 0.6 if cond else 0.1
-    )
+class DemoBannerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        try:
+            fields = run_fields(_load()[0].ckpt["run_type"])
+        except ModelUnavailable:
+            fields = run_fields("mock" if os.environ.get("PP_DEMO_MOCK") == "1" else None)
+        banner = "MOCK DEMO — not NFHS-5; synthetic rates are not research results"
+        response.headers["X-ProxyPatient-Status"] = fields["status_banner"]
+        if fields["demo"]:
+            response.headers["X-ProxyPatient-Demo"] = banner.encode("ascii", "replace").decode()
+        if "application/json" in response.headers.get("content-type", ""):
+            body = b"".join([chunk async for chunk in response.body_iterator])
+            payload = json.loads(body)
+            if isinstance(payload, dict):
+                payload.update(fields)
+                if fields["demo"]:
+                    payload.update(banner=banner)
+            headers = dict(response.headers)
+            headers.pop("content-length", None)
+            return Response(json.dumps(payload), status_code=response.status_code,
+                            headers=headers, media_type="application/json")
+        return response
+
+
+app.add_middleware(DemoBannerMiddleware)

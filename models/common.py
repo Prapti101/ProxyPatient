@@ -33,7 +33,10 @@ def load_config(path: Optional[str] = None) -> dict:
 
 
 def min_cell(cfg: dict) -> int:
-    return int(cfg.get("privacy", {}).get("min_cell_size", 30))
+    value = int(cfg.get("privacy", {}).get("min_cell_size", 30))
+    if value < 30:
+        raise ValueError("privacy.min_cell_size cannot be below 30")
+    return value
 
 
 def threshold(cfg: dict) -> float:
@@ -71,8 +74,12 @@ def guard_filename(path: str, final_test: bool) -> None:
         raise LockedTestError(f"Refusing to read {os.path.basename(path)} without --final-test.")
 
 
-def read_parquet(path: str, final_test: bool = False, columns=None) -> pd.DataFrame:
-    guard_filename(path, final_test)
+def read_parquet(path: str, final_test: bool = False, columns=None, membership_only=False) -> pd.DataFrame:
+    if membership_only:
+        if columns != ["_row_id"]:
+            raise LockedTestError("Membership-only access permits _row_id only; never test outcomes")
+    else:
+        guard_filename(path, final_test)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Missing data file: {os.path.basename(path)} (looked in {os.path.dirname(path)})")
     return pd.read_parquet(path, columns=columns)
@@ -109,7 +116,7 @@ def age3_index(age: pd.Series) -> pd.Series:
     """Harmonised age band index 0/1/2 (15-24, 25-34, 35+) from numeric age."""
     a = as_num(age)
     idx = pd.Series(np.where(a < 25, 0, np.where(a < 35, 1, 2)), index=age.index, dtype=float)
-    return idx.where(a.notna())
+    return idx.where(a.between(15, 54))
 
 
 def age_band_bounds(cfg: dict, sex: int, age3: int):
@@ -190,7 +197,8 @@ def to_jsonable(o):
 def write_json(obj, path: str) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(to_jsonable(obj), f, indent=2)
+        from models.privacy import safe_public_output
+        json.dump(safe_public_output(to_jsonable(obj)), f, indent=2)
 
 
 def md_table(rows, headers, none_text: str = "-") -> str:

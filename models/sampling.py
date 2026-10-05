@@ -59,11 +59,17 @@ class CVAEBundle:
             v = cont[:, j].astype(np.float64) * p.std[c] + p.mean[c]
             if c == "log_glucose":
                 lo, hi = self.cfg["glucose_clip_mg_dl"]
-                out["glucose_raw"] = np.clip(np.round(np.exp(v)), lo, hi)
+                raw = np.exp(v)
+                if not np.isfinite(raw).all():
+                    raise ValueError("Non-finite generated glucose before plausibility clipping")
+                out["_glucose_clipped"] = (raw < lo) | (raw > hi)
+                out["glucose_raw"] = np.clip(np.round(raw), lo, hi)
             else:
                 out[c] = v
         for j, c in enumerate(s.cat_cols):
             out[c] = np.asarray(s.cat_levels[c], dtype=float)[cat[:, j]]
+        if any(not np.isfinite(v).all() for v in out.values()):
+            raise ValueError("Non-finite CVAE decoder output; generation refused")
         return out
 
     def _consistent(self, u: dict, bounds) -> np.ndarray:
@@ -76,7 +82,25 @@ class CVAEBundle:
 
     # ── main entry ───────────────────────────────────────────────────────────
     def sample(self, cond_idx: np.ndarray, state_idx: Optional[np.ndarray] = None,
-               seed: int = 42, max_rounds: int = 30, batch_rows: int = 200_000) -> pd.DataFrame:
+               seed: int = 42, max_rounds: int = 30, batch_rows: int = 4096) -> pd.DataFrame:
+        if cond_idx.ndim != 2 or cond_idx.shape[1] != len(self.spec.cond_names):
+            raise ValueError("Condition array has wrong shape")
+        if any(((cond_idx[:, j] < 0) | (cond_idx[:, j] >= len(self.spec.cond_levels[c]))).any()
+               for j, c in enumerate(self.spec.cond_names)):
+            raise ValueError("Invalid encoded condition")
+        if self.spec.use_state and (state_idx is None or len(state_idx) != len(cond_idx)
+                                   or ((state_idx < 0) | (state_idx >= self.spec.n_states)).any()):
+            raise ValueError("Unsupported or missing encoded state")
+        if batch_rows <= 0:
+            raise ValueError("batch_rows must be positive")
+        if len(cond_idx) == 0:
+            columns = ["glucose_raw" if c == "log_glucose" else c for c in self.spec.cont_cols] + self.spec.cat_cols
+            if self.spec.weight_derived:
+                columns.append("weight_kg")
+            result = pd.DataFrame({c: pd.Series(dtype="int64" if c == "age" else "float64") for c in columns})
+            result.attrs["sampling"] = {"n": None, "first_pass_inconsistent_share": None,
+                                        "clipped_after_max_rounds": None, "consistent_without_clipping_share": None}
+            return result
         t0 = time.time()
         g = torch.Generator(device=self.device).manual_seed(int(seed))
         n = len(cond_idx)
@@ -110,6 +134,10 @@ class CVAEBundle:
             bad = bad[~ok2]
         n_clipped = len(bad)
         age_lo, age_hi, bmi_lo, bmi_hi, ht = bounds
+        clipped = np.zeros(n, dtype=bool)
+        clipped[bad] = True
+        glucose_clipped = units.pop("_glucose_clipped", np.zeros(n, dtype=bool))
+        clipped |= glucose_clipped
         units["age"] = np.clip(np.round(units["age"]), age_lo, age_hi)
         units["bmi"] = np.clip(units["bmi"], bmi_lo, np.nextafter(bmi_hi, -np.inf))
         if "systolic_avg" in units:
@@ -118,19 +146,26 @@ class CVAEBundle:
             units["diastolic_avg"][m] = np.minimum(units["diastolic_avg"][m], 89)
         for c in ("height_cm", "waist_cm", "hip_cm", "systolic_avg", "diastolic_avg"):
             if c in units:
+                clipped |= (units[c] < self.pre.lo[c]) | (units[c] > self.pre.hi[c])
                 units[c] = np.clip(units[c], self.pre.lo[c], self.pre.hi[c])
         units["bmi"] = np.floor(units["bmi"] * 100) / 100   # floor keeps it inside [lo, hi)
-        units["height_cm"] = np.round(units["height_cm"], 1)
-        units["weight_kg"] = np.round(units["bmi"] * (units["height_cm"] / 100.0) ** 2, 1)
+        if self.spec.weight_derived:
+            units["height_cm"] = np.round(units["height_cm"], 1)
+            units["weight_kg"] = np.round(units["bmi"] * (units["height_cm"] / 100.0) ** 2, 1)
         for c in ("waist_cm", "hip_cm"):
             units[c] = np.round(units[c], 1)
         for c in ("systolic_avg", "diastolic_avg"):
             if c in units:
                 units[c] = np.round(units[c])
+        if "systolic_avg" in units:
+            mask = ht == 0
+            units["systolic_avg"][mask] = np.minimum(units["systolic_avg"][mask], 139)
+            units["diastolic_avg"][mask] = np.minimum(units["diastolic_avg"][mask], 89)
         df = pd.DataFrame(units)
         df["age"] = df["age"].astype(int)
         df.attrs["sampling"] = {
-            "n": n, "first_pass_inconsistent_share": round(first_pass_reject, 6),
+            "n": n, "clipped_share": round(float(clipped.mean()), 6),
+            "glucose_clipped_share": round(float(glucose_clipped.mean()), 6), "first_pass_inconsistent_share": round(first_pass_reject, 6),
             "redrawn_rows": int(n_redraws), "clipped_after_max_rounds": int(n_clipped),
             "consistent_without_clipping_share": round(1 - n_clipped / max(n, 1), 6),
             "seconds": round(time.time() - t0, 4),

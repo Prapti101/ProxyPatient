@@ -1,0 +1,9 @@
+{
+  "status": "pending",
+  "metrics": null,
+  "note": "P3 schema only; computed results come from packaged eval_dev outputs. No external dataset was executed.",
+  "outcome": "elevated glucose (proxy); finite generated glucose under configured threshold; Wilson Monte Carlo interval",
+  "metric_groups": ["marginals", "correlation", "tail", "conditional_rate_fidelity", "direction", "consistency", "nearest_record", "tstr", "real_vs_synthetic", "subgroup_fidelity"],
+  "minimum_respondent_support": 30,
+  "limitations": "Small subgroup counts and statistics are null; support above 30 is not a stability guarantee. TSTR is matched-condition transductive utility; nearest-record metrics are not a privacy certificate."
+}

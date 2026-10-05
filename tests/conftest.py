@@ -28,6 +28,9 @@ def mock_baselines_dir(tmp_path_factory):
 
 @pytest.fixture()
 def real_generator_env(mock_model_dir, monkeypatch):
+    monkeypatch.setenv("PP_MODEL_DIR", str(mock_model_dir))
+    monkeypatch.setenv("PP_DEMO_MOCK", "1")
+    monkeypatch.setenv("PP_ALLOW_PARTIAL_PROFILE", "1")
     monkeypatch.setenv("PP_CVAE_WEIGHTS", str(mock_model_dir / "cvae_weights.pt"))
     monkeypatch.setenv("PP_CONDITION_MARGINALS", str(mock_model_dir / "condition_marginals.json"))
     yield mock_model_dir

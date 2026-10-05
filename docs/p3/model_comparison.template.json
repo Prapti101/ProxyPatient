@@ -1,0 +1,12 @@
+{
+  "status": "pending",
+  "models": [
+    {"model": "CVAE", "family": "conditional variational autoencoder", "metrics": null},
+    {"model": "CVAE-GRU", "family": "CVAE sequential decoder ablation over tabular columns; no temporal modelling", "metrics": null},
+    {"model": "CVAE-CNN", "family": "CVAE convolutional encoder ablation over tabular columns; no temporal modelling", "metrics": null},
+    {"model": "TVAE", "family": "tabular variational autoencoder baseline", "metrics": null},
+    {"model": "CTGAN", "family": "tabular GAN baseline", "metrics": null}
+  ],
+  "criteria": ["marginal fidelity", "correlation", "glucose tails", "conditional outcome-rate fidelity", "direction checks", "consistency", "TSTR", "real-vs-synthetic distinguishability", "subgroup fidelity", "nearest-record distances"],
+  "ranking_policy": "Data only; no predeclared winner. Baseline subsampling/state use and retained condition coverage differ."
+}

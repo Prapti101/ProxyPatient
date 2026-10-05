@@ -1,3 +1,8 @@
+> Historical snapshot, reviewed and superseded 2026-10-05 (Asia/Kolkata).
+> Current implementation and resolved findings: OVERNIGHT_REPORT.md and PRESENTATION_SLICE.md.
+> Claims below about missing hypertension/state fields, v2 aggregates, threshold,
+> health version, and derived BP definitions are stale; the preflight review confirmed they already existed.
+
 # P2 repo check (T0)
 
 Checked on `main` at commit `1fe0530` (merge of PR #1, P1's v2 work). Order of
