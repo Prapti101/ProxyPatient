@@ -145,3 +145,47 @@ def test_p3_subgroup_suppression_and_classifier_partitions():
     result = real_vs_synthetic(real, real, real.copy(), spec, 42)
     assert result['status'] == 'complete' and 0 <= result['roc_auc'] <= 1
     assert not small_count_paths(result)
+
+
+def test_final_run_crash_requires_confirmation_and_frozen_artifacts(tmp_path, mock_model_dir, monkeypatch):
+    import shutil
+    from models import run_all
+    private = tmp_path/'private_outputs'
+    shutil.copytree(mock_model_dir, private)
+    (tmp_path/'safe_outputs').mkdir()
+    args = ['--mock', '--out-dir', str(tmp_path), '--final-test', '--i-understand-this-is-the-single-final-run']
+    def crash(command, **kwargs):
+        raise RuntimeError('constructed crash before metrics')
+    monkeypatch.setattr(run_all.subprocess, 'run', crash)
+    with pytest.raises(RuntimeError, match='constructed crash') as retained_exception:
+        run_all.main(args)
+    assert retained_exception.value.args[0] == 'constructed crash before metrics'
+    marker = tmp_path/'FINAL_TEST_STARTED.json'
+    assert json.loads(marker.read_text())['status'] == 'started'
+    with pytest.raises(RuntimeError, match='confirm-previous'):
+        run_all.main(args)
+    def success(command, **kwargs):
+        (tmp_path/'stage_metrics').mkdir(exist_ok=True)
+        (tmp_path/'stage_metrics/final_test.json').write_text(json.dumps({'stage': 'final_test', 'runtime_seconds': .1, 'peak_memory_mib': 100.}))
+        (tmp_path/'safe_outputs/model_comparison_final_test.json').write_text(json.dumps({'status': 'test double'}))
+    monkeypatch.setattr(run_all.subprocess, 'run', success)
+    (private/'changed.md').write_text('modified frozen package')
+    with pytest.raises(RuntimeError, match='artifacts changed'):
+        run_all.main(args + ['--confirm-previous-final-run-crashed'])
+    (private/'changed.md').unlink()
+    run_all.main(args + ['--confirm-previous-final-run-crashed'])
+    record = json.loads(marker.read_text())
+    assert record['status'] == 'completed' and len(record['recoveries']) == 1
+    with pytest.raises(RuntimeError, match='completed'):
+        run_all.main(args + ['--confirm-previous-final-run-crashed'])
+
+
+def test_started_marker_with_metrics_refuses_retry(tmp_path, mock_model_dir, monkeypatch):
+    import shutil
+    from models import run_all
+    shutil.copytree(mock_model_dir, tmp_path/'private_outputs')
+    (tmp_path/'safe_outputs').mkdir()
+    (tmp_path/'FINAL_TEST_STARTED.json').write_text(json.dumps({'status': 'started'}))
+    (tmp_path/'safe_outputs/model_comparison_final_test.json').write_text('{}')
+    with pytest.raises(RuntimeError, match='metrics exist'):
+        run_all.main(['--mock', '--out-dir', str(tmp_path), '--final-test', '--i-understand-this-is-the-single-final-run', '--confirm-previous-final-run-crashed'])

@@ -9,6 +9,7 @@ Final evaluation is separate, on frozen packaged artifacts, with explicit
 No respondent or mock rows are saved. safe_outputs contains aggregate JSON/MD;
 private_outputs contains weights and fitted artifacts, never for public commit.
 """
+import fcntl
 import argparse
 import json
 import os
@@ -168,6 +169,7 @@ def parse_args(argv=None):
     parser.add_argument('--mock', action='store_true', help='in-memory MOCK data only; never persisted as rows')
     parser.add_argument('--final-test', action='store_true', help='separate frozen single final evaluation, no retraining')
     parser.add_argument('--i-understand-this-is-the-single-final-run', action='store_true', dest='acknowledge_final')
+    parser.add_argument('--confirm-previous-final-run-crashed', action='store_true')
     parser.add_argument('--_stage', choices=STAGES+('final_test',), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if not args.mock and not args.data_dir:
@@ -176,6 +178,8 @@ def parse_args(argv=None):
         parser.error("final-test stage requires the acknowledged final-test command")
     if args.final_test and not args.acknowledge_final:
         parser.error('--final-test requires --i-understand-this-is-the-single-final-run')
+    if args.confirm_previous_final_run_crashed and not args.final_test:
+        parser.error("Crash recovery flag requires acknowledged --final-test")
     if args.final_test and (args.quick or args.full):
         parser.error('final evaluation uses frozen artifacts, not --quick/--full')
     args.run_type = resolve_run_type(args.mock, args.quick)
@@ -191,58 +195,89 @@ def main(argv=None):
     root = Path(args.out_dir).resolve()
     args.out_dir = str(root)
     marker = root/'FINAL_TEST_STARTED.json'
-    if marker.exists():
-        raise RuntimeError('Frozen output directory has already entered final-test stage; do not retrain or repeat')
     root.mkdir(parents=True, exist_ok=True)
-    if args.final_test:
-        from models.artifacts import validate_checkpoint
-        from models.sampling import CVAEBundle
-        weights = root/'private_outputs/cvae_weights.pt'
-        bundle = CVAEBundle.load(str(weights))
-        validate_checkpoint(bundle.ckpt)
-        if bundle.ckpt['is_mock'] != args.mock:
-            raise ValueError('Checkpoint MOCK mode does not match final run mode')
-        with marker.open('x') as f:
-            json.dump({'started': datetime.now(timezone.utc).isoformat(), 'weights_sha256': sha256_file(str(weights)),
-                       'fingerprint': bundle.ckpt['fingerprint'], 'mock': args.mock}, f, indent=2)
-        names = ['final_test']
-    else:
-        names = [s for s in STAGES if s not in args.skipped_stages]
-        # Fresh working artifacts prevent accidentally evaluating stale baselines.
-        work = root/'working'
-        if work.exists():
-            archive = root/('previous-working-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f'))
-            work.rename(archive)
-    environment = dict(os.environ, OMP_NUM_THREADS='2', MKL_NUM_THREADS='2', OPENBLAS_NUM_THREADS='2')
-    for name in names:
-        command = [sys.executable, '-m', 'models.run_all', '--out-dir', str(root), '--_stage', name]
-        if args.mock:
-            command.append('--mock')
-        else:
-            command += ['--data-dir', args.data_dir]
-        for flag, enabled in [('quick', args.quick), ('full', args.full), ('skip-baselines', args.skip_baselines),
-                              ('skip-dae-benchmark', args.skip_dae_benchmark)]:
-            if enabled:
-                command.append('--'+flag)
+    final_lock = (root/'.FINAL_TEST.lock').open('a')
+    try:
+        fcntl.flock(final_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        raise RuntimeError('Another workflow is active in this frozen directory') from exc
+    try:
+        previous = json.loads(marker.read_text()) if marker.exists() else None
+        if previous and (not args.final_test or previous.get('status') == 'completed'):
+            raise RuntimeError('Frozen output directory has already entered completed final-test stage; do not retrain or repeat')
+        if previous:
+            if previous.get('status', 'started') != 'started':
+                raise RuntimeError('Unknown final marker state; recovery refused')
+            if (root/'safe_outputs/model_comparison_final_test.json').exists():
+                raise RuntimeError('Previous final metrics exist; recovery refused to prevent repeated evaluation')
+            if not args.confirm_previous_final_run_crashed:
+                raise RuntimeError('Previous final run started without metrics; require --confirm-previous-final-run-crashed')
         if args.final_test:
-            command += ['--final-test', '--i-understand-this-is-the-single-final-run']
-        print(f'Starting {name}', flush=True)
-        subprocess.run(command, check=True, env=environment)
-    metrics = [json.loads((root/'stage_metrics'/f'{name}.json').read_text()) for name in names]
-    metrics_name = 'final_run_metrics.json' if args.final_test else 'run_metrics.json'
-    safe = root/'safe_outputs'
-    write_json({**run_fields(args.run_type), 'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
-    if not args.final_test:
-        write_json({**run_fields(args.run_type), 'stages': metrics}, str(safe/'timings.json'))
-    manifest = {**run_fields(args.run_type), 'mock': args.mock, 'skipped_stages': args.skipped_stages,
-                'files': [{'file': path.name, 'sha256': sha256_file(str(path))}
-                          for path in sorted(safe.iterdir()) if path.suffix in ('.json', '.md') and path.name != 'manifest.json']}
-    write_json(manifest, str(safe/'manifest.json'))
-    if args.final_test:
-        record = json.loads(marker.read_text())
-        record.update(status='completed', completed=datetime.now(timezone.utc).isoformat())
-        write_json(record, str(marker))
-    return {'stages': names, 'mock': args.mock, 'out_dir': str(root)}
+            from models.artifacts import validate_checkpoint
+            from models.sampling import CVAEBundle
+            weights = root/'private_outputs/cvae_weights.pt'
+            bundle = CVAEBundle.load(str(weights))
+            validate_checkpoint(bundle.ckpt)
+            if bundle.ckpt['is_mock'] != args.mock:
+                raise ValueError('Checkpoint MOCK mode does not match final run mode')
+            args.run_type = bundle.ckpt['run_type']
+            frozen = {path.name: sha256_file(str(path)) for path in sorted((root/'private_outputs').iterdir()) if path.is_file()}
+            if previous and (previous['weights_sha256'] != frozen['cvae_weights.pt']
+                             or previous['fingerprint'] != bundle.ckpt['fingerprint']
+                             or previous.get('artifact_hashes', frozen) != frozen):
+                raise RuntimeError('Frozen artifacts changed since previous final run; recovery refused')
+            record = {'status': 'started', 'started': datetime.now(timezone.utc).isoformat(),
+                      'weights_sha256': frozen['cvae_weights.pt'], 'artifact_hashes': frozen,
+                      'fingerprint': bundle.ckpt['fingerprint'], **run_fields(args.run_type), 'mock': args.mock,
+                      'recoveries': previous.get('recoveries', []) if previous else []}
+            if previous:
+                record['recoveries'].append({'confirmed': datetime.now(timezone.utc).isoformat(), 'previous_started': previous['started']})
+                print('Explicitly confirmed previous final run crashed before metrics; retrying unchanged frozen artifacts', flush=True)
+            write_json(record, str(marker)+'.tmp')
+            os.replace(str(marker)+'.tmp', marker)
+            names = ['final_test']
+        else:
+            names = [s for s in STAGES if s not in args.skipped_stages]
+            # Fresh working artifacts prevent accidentally evaluating stale baselines.
+            work = root/'working'
+            if work.exists():
+                archive = root/('previous-working-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f'))
+                work.rename(archive)
+        environment = dict(os.environ, OMP_NUM_THREADS='2', MKL_NUM_THREADS='2', OPENBLAS_NUM_THREADS='2')
+        for name in names:
+            command = [sys.executable, '-m', 'models.run_all', '--out-dir', str(root), '--_stage', name]
+            if args.mock:
+                command.append('--mock')
+            else:
+                command += ['--data-dir', args.data_dir]
+            for flag, enabled in [('quick', args.quick), ('full', args.full), ('skip-baselines', args.skip_baselines),
+                                  ('skip-dae-benchmark', args.skip_dae_benchmark)]:
+                if enabled:
+                    command.append('--'+flag)
+            if args.final_test:
+                command += ['--final-test', '--i-understand-this-is-the-single-final-run']
+            print(f'Starting {name}', flush=True)
+            subprocess.run(command, check=True, env=environment)
+        metrics = [json.loads((root/'stage_metrics'/f'{name}.json').read_text()) for name in names]
+        metrics_name = 'final_run_metrics.json' if args.final_test else 'run_metrics.json'
+        safe = root/'safe_outputs'
+        write_json({**run_fields(args.run_type), 'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
+        if not args.final_test:
+            write_json({**run_fields(args.run_type), 'stages': metrics}, str(safe/'timings.json'))
+        manifest = {**run_fields(args.run_type), 'mock': args.mock, 'skipped_stages': args.skipped_stages,
+                    'files': [{'file': path.name, 'sha256': sha256_file(str(path))}
+                              for path in sorted(safe.iterdir()) if path.suffix in ('.json', '.md') and path.name != 'manifest.json']}
+        write_json(manifest, str(safe/'manifest.json'))
+        if args.final_test:
+            record = json.loads(marker.read_text())
+            record.update(status='completed', completed=datetime.now(timezone.utc).isoformat())
+            write_json(record, str(marker)+".tmp")
+            os.replace(str(marker)+".tmp", marker)
+        return {'stages': names, 'mock': args.mock, 'out_dir': str(root)}
+    finally:
+        fcntl.flock(final_lock, fcntl.LOCK_UN)
+        final_lock.close()
+
 
 
 if __name__ == '__main__':

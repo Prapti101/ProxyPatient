@@ -349,6 +349,8 @@ def coverage_report(conditions, retained):
 def run(args, cfg):
     from models.privacy import safe_public_output, suppress_count
     thr = float(cfg["outcome"]["threshold_mg_dl"])
+    from models.run_status import resolve_run_type, run_fields
+    run_type = resolve_run_type(args.mock)
     spec = None
     eval_split = "test" if args.final_test else "val"
     if args.mock:
@@ -367,6 +369,7 @@ def run(args, cfg):
         validate_checkpoint(checkpoint.ckpt, cfg)
         if checkpoint.ckpt['is_mock'] != bool(args.mock):
             raise ValueError("Evaluation mode does not match checkpoint MOCK provenance")
+        run_type = checkpoint.ckpt['run_type']
         spec = checkpoint.spec
     else:
         spec = build_spec(cfg, use_state=False, training_df=tr)
@@ -405,6 +408,7 @@ def run(args, cfg):
                          "n_eval_rows_requested": suppress_count(len(ev_u)),
                          "n_eval_rows_all_models_filled": suppress_count(len(real))},
                "models": {name: {"status": "insufficient coverage", "metrics": None} for name in gens}}
+        res.update(run_fields(run_type))
         write_json(res, args.out_json)
         with open(os.path.splitext(args.out_json)[0] + ".md", "w", encoding="utf-8") as f:
             f.write("# Evaluation: insufficient coverage\nStatistics suppressed (fewer than 30 respondents).\n")
@@ -437,6 +441,7 @@ def run(args, cfg):
             "real_vs_synthetic": real_vs_synthetic(tr_u, real, g, spec, args.seed),
             "subgroup_fidelity": subgroup_fidelity(real, g, spec, thr),
         }
+    res.update(run_fields(run_type))
     res = safe_public_output(res)
     write_json(res, args.out_json)
     with open(os.path.splitext(args.out_json)[0] + ".md", "w", encoding="utf-8") as f:

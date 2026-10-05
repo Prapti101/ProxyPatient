@@ -15,3 +15,7 @@ R3: Canonical eval_dev report ingestion for validation/model-comparison, PP_REPO
 2026-10-05 (Asia/Kolkata): Push attempt 3, p2-finish, R3 cc82ca2: SUCCESS.
 
 R4: Imported ONLY the three added P3 files (all <5KB; no data-like additions); relocated two corrected pending templates under docs/p3, archived untouched parser under legacy (never imported). Reconciled aliases/relative BMI into one backend parser, with optional strictly offline lazy token annotations, never condition generation. Added shared-suppression subgroup fidelity and held-out real-vs-synthetic classification to canonical eval_dev; existing P2 metrics reused. Removed template upload identifiers and unsupported bootstrap/temporal claims. DONE. Full suite: 98 passed, 0 failed/skipped; P3 phrase/offline-hook/suppression/classifier tests and packaged ingestion passed.
+
+2026-10-05 (Asia/Kolkata): Push attempt 4, p2-finish, R4 85ceafc: SUCCESS.
+
+R5: Started/completed marker states, explicit crash acknowledgement only before metrics, frozen artifact hashes and recovery receipt, exclusive directory locking. Completed and metrics-present runs cannot repeat; retraining remains prohibited after any final marker. Additional bug: final quick evaluation now retains the frozen checkpoint’s quick label rather than being relabelled full. DONE. Full suite: 100 passed, 0 failed/skipped. Regression also retains the thrown exception to verify locks release explicitly on failures.
