@@ -29,7 +29,7 @@ def post(path, payload):
     request = urllib.request.Request(base+path, data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
     with urllib.request.urlopen(request) as response:
         print(json.dumps(json.load(response), indent=2))
-post('/generate', {'condition': profile, 'n': 1000, 'seed': 42})
+post('/generate', {'condition': profile, 'n': 1000, 'seed': 42, 'n_examples': 3})
 post('/compare', {'scenarios': [
     {'label':'baseline', 'condition':profile, 'n':1000, 'seed':42},
     {'label':'descriptive BMI change', 'condition':{**profile, 'bmi_band':'normal'}, 'n':1000, 'seed':42}
@@ -76,3 +76,11 @@ Quick defaults are in config.yaml: 100,000 stratified CVAE TRAIN rows, six epoch
 - Counts/statistics below 30 are null; sufficient privacy support does not guarantee stable estimates. Presets require 500 encoded TRAIN respondents, without validating arbitrary changes.
 
 Do not claim a diagnosis, individual prediction, causal effect, survey-representative rate, untouched test set or finished model from a quick run. Never present mock values as NFHS-5 results or choose a winner from architecture alone. Real-data fidelity, tail calibration, disclosure and legal release remain human review tasks.
+
+## Present representative examples
+
+After the synchronous response, show "Synthetic Cohort Generated", `outcome_stat.n`, the cohort percentage/interval and, for comparisons, `delta_pp`. Render each returned example as a card with its ID, full SYNTHETIC label, effective conditions, generated features in original units and generated elevated glucose (proxy) outcome. MOCK labels must remain visible. Show an indeterminate waiting indicator only; no invented progress percentage.
+
+Default cards use glucose quartiles; five use the 10th/25th/50th/75th/90th percentile ranks. An elevated cohort includes its least elevated row as an explicit illustration, replacing the last slot if needed. Never exceed n_examples. Cards illustrate the generated cohort; calculate no rate from the cards. Glucose display rounding does not determine the elevated flag.
+
+Real mode returns null examples and a withholding status unless the bound/checksummed VAL report's CVAE nearest-record diagnostic passes configured median-ratio, minimum-distance, zero-exact-copy and support checks. The new minimum field requires a fresh development evaluation/package for older runs. Do not rerun final TEST to enable cards. This sampled numeric check is a heuristic, not a privacy guarantee, and does not certify each card's distance or scientific validity. Continue showing summaries when examples are withheld. No bulk export or persisted samples are enabled.

@@ -128,6 +128,9 @@ split:
 # -----------------------------------------------------------------------------
 privacy:
   min_cell_size: 30          # Suppress any aggregate cell with n < 30
+  examples_near_copy:
+    min_median_ratio: 0.5  # generated-to-TRAIN median / VAL-to-TRAIN median
+    min_distance_epsilon: 0.00001  # standardised numeric space; conservative rounding
   suppress_value: null       # Replace suppressed cells with null in JSON output
   # FORBIDDEN: Never print or commit raw rows. Never share processed splits.
 

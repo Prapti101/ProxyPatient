@@ -37,19 +37,33 @@ Unknown keys and glucose/HbA1c keys are rejected. Glucose is the outcome, never 
 | GET /schema | None | Raw-variable dictionary from docs/schema.json plus supported_state_codes and run provenance |
 | GET /options | None | Allowed values, sex-specific age options, supported states, required_profile_keys and run provenance |
 | GET /profiles | None | ProfilesResponse: profiles [{label, condition, description, n_train}], source, reference_scope, disclaimer and run provenance. Each full preset has >=500 encoded TRAIN rows; fewer than three presets returns 503 |
-| POST /generate | {condition, n?, seed?} | GenerateResponse described below |
-| POST /compare | {scenarios: [{label, condition, n?, seed?}, ...]} (2..5) | CompareResponse: scenarios [GenerateResponse fields + label + delta_pp], model_fingerprint, disclaimer, weighting, uncertainty_note, note and run provenance |
+| POST /generate | {condition, n?, seed?, n_examples?} | GenerateResponse described below |
+| POST /compare | {scenarios: [{label, condition, n?, seed?, n_examples?}, ...]} (2..5) | CompareResponse: scenarios [GenerateResponse fields + label + delta_pp], model_fingerprint, disclaimer, weighting, uncertainty_note, note and run provenance |
 | GET /validation | None | ReportResponse described below: complete measured report or pending with null metrics |
 | GET /model-comparison | None | ReportResponse with measured per-model table; metrics null, models contains canonical metric groups when complete. No ranking |
 | POST /parse | {text, baseline?}; text 1..2,000 chars, baseline allows a partial Condition | ParseResponse: parsed_condition (proposal/changes only), raw_text, confidence null, parser, requires_confirmation true, unresolved [], optional_token_hook and run provenance. Demo-only |
 | GET /openapi.json | None | Machine-readable schemas; JSON also carries run provenance |
 | GET /docs, /redoc | None | Interactive HTML schema documentation; status header |
 
-`GenerateResponse` includes condition, effective_conditions, outcome_stat, model_fingerprint, sampling_diagnostics, synthetic, model_used, scope, weighting, uncertainty_note, disclaimer, note and run provenance. No raw rows are returned. `outcome_stat` has rate (fraction), rate_pct, ci_low/ci_high (fractions), n, suppressed dropped_nonfinite, and monte_carlo_interval metadata. The Wilson interval measures finite-cohort Monte Carlo variation conditional on the fitted model, not survey or fitted-model uncertainty. Sampling diagnostics disclose constraint rejection, clipping, seed and any independent-marginal fill. `delta_pp` is percentage-point change from the first scenario, not a causal effect.
+`GenerateResponse` includes condition, effective_conditions, outcome_stat, model_fingerprint, sampling_diagnostics, synthetic, model_used, scope, weighting, uncertainty_note, disclaimer, note and run provenance. No real respondent rows or bulk synthetic exports are returned; bounded synthetic examples are described below. `outcome_stat` has rate (fraction), rate_pct, ci_low/ci_high (fractions), n, suppressed dropped_nonfinite, and monte_carlo_interval metadata. The Wilson interval measures finite-cohort Monte Carlo variation conditional on the fitted model, not survey or fitted-model uncertainty. Sampling diagnostics disclose constraint rejection, clipping, seed and any independent-marginal fill. `delta_pp` is percentage-point change from the first scenario, not a causal effect.
 
 `ReportResponse` has status, metrics, models, evaluation_scope, real_reference, model_fingerprint, note and run provenance. `metrics` contains the canonical `eval_dev` object for complete validation: `_meta`, `real`, `models`, and run provenance. Each model contains generation/coverage plus marginals (KS/Wasserstein/TVD), correlation, tail, conditional_rate_fidelity, direction, consistency, nearest_record, tstr, real_vs_synthetic, subgroup_fidelity. Metrics use a shared retained subset; small respondent cells are null. Classification/disclosure metrics are diagnostics, not guarantees. Optional CVAE ablation reports appear only when measured artifacts exist.
 
 The report reader uses `PP_REPORT_DIR` (default `PP_MODEL_DIR/safe_outputs`). Normal packages have sibling safe_outputs/private_outputs directories, so set both paths explicitly. It verifies the manifest checksums, served model fingerprint, run type, mock mode and VAL split. Missing, incompatible or insufficient-support reports return `status: pending`, `metrics: null`, `models: null`; no numbers are invented. P3 templates under docs/p3 are never treated as measured outputs.
+
+## Representative synthetic examples
+
+`n_examples` is a strict integer 1..5 per scenario, default 3. Unknown fields and `export_sample` are rejected. The internal generator's export option remains disabled. Each scenario returns `examples` (a list or null), `examples_status`, and `examples_note`. `SyntheticExample` contains `example_id`, `synthetic: true`, `label`, `effective_conditions`, `generated_features`, integer `glucose_raw` in mg/dL, boolean `elevated_glucose_proxy`, and boolean `illustrative_elevated`.
+
+Generated features include integer age in years, coded education and BP-checked flag, and BMI, waist/hip in cm and available height in cm/derived weight in kg to one decimal. Optional generated BP readings are in mmHg. Conditions reflect each selected row, including sampled state/any explicit demo marginal fills. Glucose is rounded for display; the elevated flag is calculated from unrounded generated glucose at the configured threshold, so rounded glucose alone can appear to straddle the threshold. Examples are selected from the freshly generated cohort, never from respondent tables or a precomputed example bank.
+
+Stable glucose sorting selects nearest ranked rows at the 25th/50th/75th percentiles (K=3), adding the 10th/90th for K=5. K=1 selects the median, K=2 the quartiles, K=4 adds the 10th percentile. If any row is elevated, the least elevated generated row receives `illustrative_elevated: true`; it replaces the last selection if absent. This resolves the conflicting extra-example and hard-cap requirements: the count never exceeds K. This illustration changes neither the full-cohort rate nor its interval; the examples are not a statistical sample for estimating rates.
+
+Statuses are `available: MOCK`, `available: near-copy heuristic passed`, or `withheld: near-copy check missing or not passed` (with `examples: null`). MOCK labels include both MOCK and "SYNTHETIC example, not a real person". Real labels retain the synthetic warning.
+
+In real mode the existing checksum-verified, matching-checkpoint/run-type, VAL package reader must return a complete report with at least 30 retained evaluation rows. Its primary CVAE `nearest_record` diagnostic must have at least 30 real and generated queries, finite positive real-to-TRAIN median, generated median at least 0.5 times that median, generated minimum distance above 0.00001, and zero exact-copy share. Thresholds are in `privacy.examples_near_copy` in config.yaml. Missing/suppressed/nonfinite fields and older reports without `minimum` withhold examples. The evaluator measures distances in TRAIN-standardised numeric space using sampled TRAIN references and queries; it does not measure every displayed example or its rounded representation. **This is a heuristic, not a privacy guarantee** or proof of scenario support. Checksums bind the supplied report to artifacts; they do not authorize disclosure. Rates remain available when examples are withheld.
+
+The API is synchronous. While waiting, clients may show an indeterminate loading indicator, then "Synthetic Cohort Generated", `outcome_stat.n`, labelled cards (or the withholding status), comparison `delta_pp`, banners and validation. Do not fabricate percent-complete progress. No client code exists in this repository; rendering cards remains the frontend team's task.
 
 ## UI flow and errors
 
@@ -208,12 +222,13 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
     "alcohol": 0
   },
   "n": 1000,
-  "seed": 42
+  "seed": 42,
+  "n_examples": 3
 }
 ```
 
 
-### POST /generate response
+### POST /generate response (captured MOCK run)
 
 ```json
 {
@@ -222,6 +237,97 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
   "status_banner": "DEMO (mock data)",
   "run_note": null,
   "demo": true,
+  "examples": [
+    {
+      "example_id": "S1-A",
+      "synthetic": true,
+      "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+      "effective_conditions": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 3,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "alcohol": 0,
+        "state": 32,
+        "tobacco": 0
+      },
+      "generated_features": {
+        "age": 29,
+        "bmi": 33.7,
+        "waist_cm": 85.0,
+        "hip_cm": 107.1,
+        "height_cm": 138.9,
+        "weight_kg": 65.0,
+        "education": 3,
+        "bp_ever_checked": 1
+      },
+      "glucose_raw": 88,
+      "elevated_glucose_proxy": false,
+      "illustrative_elevated": false
+    },
+    {
+      "example_id": "S1-B",
+      "synthetic": true,
+      "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+      "effective_conditions": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 3,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "alcohol": 0,
+        "state": 29,
+        "tobacco": 0
+      },
+      "generated_features": {
+        "age": 30,
+        "bmi": 32.0,
+        "waist_cm": 74.5,
+        "hip_cm": 92.8,
+        "height_cm": 151.3,
+        "weight_kg": 73.3,
+        "education": 2,
+        "bp_ever_checked": 0
+      },
+      "glucose_raw": 105,
+      "elevated_glucose_proxy": false,
+      "illustrative_elevated": false
+    },
+    {
+      "example_id": "S1-C",
+      "synthetic": true,
+      "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+      "effective_conditions": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 3,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "alcohol": 0,
+        "state": 10,
+        "tobacco": 0
+      },
+      "generated_features": {
+        "age": 29,
+        "bmi": 31.7,
+        "waist_cm": 87.9,
+        "hip_cm": 98.1,
+        "height_cm": 155.5,
+        "weight_kg": 76.6,
+        "education": 1,
+        "bp_ever_checked": 0
+      },
+      "glucose_raw": 204,
+      "elevated_glucose_proxy": true,
+      "illustrative_elevated": true
+    }
+  ],
+  "examples_status": "available: MOCK",
+  "examples_note": "Nearest-record screening is a heuristic, not a privacy guarantee. Examples do not determine the cohort statistic.",
   "condition": {
     "sex": 1,
     "age_band": "25-34",
@@ -267,7 +373,7 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
     "redrawn_rows": 3969,
     "clipped_after_max_rounds": null,
     "consistent_without_clipping_share": 0.999,
-    "seconds": 0.033,
+    "seconds": 0.0308,
     "filled_from_marginals": [
       "state"
     ],
@@ -277,7 +383,7 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
     "rejection_rate": 0.806
   },
   "synthetic": true,
-  "banner": "MOCK DEMO — not NFHS-5; synthetic rates are not research results",
+  "banner": "MOCK DEMO \u2014 not NFHS-5; synthetic rates are not research results",
   "model_used": "CVAE",
   "scope": "Measured BMI, known blood-pressure status and finite glucose; both sexes; complete encoded TRAIN rows.",
   "weighting": "unweighted sample",
@@ -306,7 +412,8 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
         "alcohol": 0
       },
       "n": 1000,
-      "seed": 42
+      "seed": 42,
+      "n_examples": 3
     },
     {
       "label": "alternative",
@@ -321,25 +428,142 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
         "alcohol": 0
       },
       "n": 1000,
-      "seed": 42
+      "seed": 42,
+      "n_examples": 3
     }
   ]
 }
 ```
 
 
-### POST /compare response (abridged)
+### POST /compare response (captured MOCK run)
 
 ```json
 {
   "run_type": "mock",
+  "preliminary": false,
   "status_banner": "DEMO (mock data)",
-  "note": "Differences describe synthetic scenarios, not causal effects.",
-  "model_fingerprint": "8b6406c967b5cc0ff07b23cb819579ac8709085538f2f426d673e16ca9e31b11",
+  "run_note": null,
+  "demo": true,
   "scenarios": [
     {
-      "label": "baseline",
-      "delta_pp": 0.0,
+      "run_type": "mock",
+      "preliminary": false,
+      "status_banner": "DEMO (mock data)",
+      "run_note": null,
+      "demo": true,
+      "examples": [
+        {
+          "example_id": "S1-A",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 3,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 32,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 29,
+            "bmi": 33.7,
+            "waist_cm": 85.0,
+            "hip_cm": 107.1,
+            "height_cm": 138.9,
+            "weight_kg": 65.0,
+            "education": 3,
+            "bp_ever_checked": 1
+          },
+          "glucose_raw": 88,
+          "elevated_glucose_proxy": false,
+          "illustrative_elevated": false
+        },
+        {
+          "example_id": "S1-B",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 3,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 29,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 30,
+            "bmi": 32.0,
+            "waist_cm": 74.5,
+            "hip_cm": 92.8,
+            "height_cm": 151.3,
+            "weight_kg": 73.3,
+            "education": 2,
+            "bp_ever_checked": 0
+          },
+          "glucose_raw": 105,
+          "elevated_glucose_proxy": false,
+          "illustrative_elevated": false
+        },
+        {
+          "example_id": "S1-C",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 3,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 10,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 29,
+            "bmi": 31.7,
+            "waist_cm": 87.9,
+            "hip_cm": 98.1,
+            "height_cm": 155.5,
+            "weight_kg": 76.6,
+            "education": 1,
+            "bp_ever_checked": 0
+          },
+          "glucose_raw": 204,
+          "elevated_glucose_proxy": true,
+          "illustrative_elevated": true
+        }
+      ],
+      "examples_status": "available: MOCK",
+      "examples_note": "Nearest-record screening is a heuristic, not a privacy guarantee. Examples do not determine the cohort statistic.",
+      "condition": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 3,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "tobacco": 0,
+        "alcohol": 0,
+        "state": null
+      },
+      "effective_conditions": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 3,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "tobacco": 0,
+        "alcohol": 0
+      },
       "outcome_stat": {
         "rate": 0.01,
         "ci_low": 0.005441,
@@ -355,22 +579,153 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
           "note": "Conditional on fitted model; not model or survey uncertainty"
         }
       },
+      "model_fingerprint": "8b6406c967b5cc0ff07b23cb819579ac8709085538f2f426d673e16ca9e31b11",
+      "sampling_diagnostics": {
+        "n": 1000,
+        "clipped_share": 0.026,
+        "glucose_clipped_share": 0.0,
+        "first_pass_inconsistent_share": 0.806,
+        "redrawn_rows": 3969,
+        "clipped_after_max_rounds": null,
+        "consistent_without_clipping_share": 0.999,
+        "seconds": 0.026,
+        "filled_from_marginals": [
+          "state"
+        ],
+        "seed": 42,
+        "label": "SYNTHETIC",
+        "warning": null,
+        "rejection_rate": 0.806
+      },
+      "synthetic": true,
+      "banner": "MOCK DEMO \u2014 not NFHS-5",
+      "model_used": "CVAE",
+      "scope": "Measured BMI, known blood-pressure status and finite glucose; both sexes; complete encoded TRAIN rows.",
+      "weighting": "unweighted sample",
+      "uncertainty_note": "Monte Carlo variation of the synthetic cohort conditional on the fitted model; does not measure model or survey uncertainty.",
+      "disclaimer": "SYNTHETIC scenario exploration for elevated glucose (proxy). Not a medical diagnosis, individual prediction, treatment recommendation, or causal effect. Consult a qualified healthcare professional.",
+      "note": "Descriptive synthetic scenario comparison; what-if is not causal.",
+      "label": "baseline",
+      "delta_pp": 0.0
+    },
+    {
+      "run_type": "mock",
+      "preliminary": false,
+      "status_banner": "DEMO (mock data)",
+      "run_note": null,
+      "demo": true,
+      "examples": [
+        {
+          "example_id": "S2-A",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 4,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 36,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 31,
+            "bmi": 30.6,
+            "waist_cm": 89.7,
+            "hip_cm": 90.0,
+            "height_cm": 166.7,
+            "weight_kg": 85.0,
+            "education": 2,
+            "bp_ever_checked": 1
+          },
+          "glucose_raw": 89,
+          "elevated_glucose_proxy": false,
+          "illustrative_elevated": false
+        },
+        {
+          "example_id": "S2-B",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 4,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 29,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 29,
+            "bmi": 31.3,
+            "waist_cm": 87.0,
+            "hip_cm": 83.3,
+            "height_cm": 160.2,
+            "weight_kg": 80.3,
+            "education": 1,
+            "bp_ever_checked": 0
+          },
+          "glucose_raw": 104,
+          "elevated_glucose_proxy": false,
+          "illustrative_elevated": false
+        },
+        {
+          "example_id": "S2-C",
+          "synthetic": true,
+          "label": "MOCK \u2014 SYNTHETIC example, not a real person",
+          "effective_conditions": {
+            "sex": 1,
+            "age_band": "25-34",
+            "residence": "rural",
+            "wealth_quintile": 4,
+            "bmi_band": "obese",
+            "hypertension": 0,
+            "alcohol": 0,
+            "state": 27,
+            "tobacco": 0
+          },
+          "generated_features": {
+            "age": 30,
+            "bmi": 30.7,
+            "waist_cm": 76.5,
+            "hip_cm": 89.6,
+            "height_cm": 154.7,
+            "weight_kg": 73.5,
+            "education": 2,
+            "bp_ever_checked": 1
+          },
+          "glucose_raw": 208,
+          "elevated_glucose_proxy": true,
+          "illustrative_elevated": true
+        }
+      ],
+      "examples_status": "available: MOCK",
+      "examples_note": "Nearest-record screening is a heuristic, not a privacy guarantee. Examples do not determine the cohort statistic.",
+      "condition": {
+        "sex": 1,
+        "age_band": "25-34",
+        "residence": "rural",
+        "wealth_quintile": 4,
+        "bmi_band": "obese",
+        "hypertension": 0,
+        "tobacco": 0,
+        "alcohol": 0,
+        "state": null
+      },
       "effective_conditions": {
         "sex": 1,
         "age_band": "25-34",
         "residence": "rural",
-        "wealth_quintile": 3,
+        "wealth_quintile": 4,
         "bmi_band": "obese",
         "hypertension": 0,
         "tobacco": 0,
         "alcohol": 0
       },
-      "run_type": "mock",
-      "status_banner": "DEMO (mock data)"
-    },
-    {
-      "label": "alternative",
-      "delta_pp": -0.2,
       "outcome_stat": {
         "rate": 0.008,
         "ci_low": 0.004059,
@@ -386,20 +741,42 @@ Responses below are abridged to selected actual fields where noted; `/openapi.js
           "note": "Conditional on fitted model; not model or survey uncertainty"
         }
       },
-      "effective_conditions": {
-        "sex": 1,
-        "age_band": "25-34",
-        "residence": "rural",
-        "wealth_quintile": 4,
-        "bmi_band": "obese",
-        "hypertension": 0,
-        "tobacco": 0,
-        "alcohol": 0
+      "model_fingerprint": "8b6406c967b5cc0ff07b23cb819579ac8709085538f2f426d673e16ca9e31b11",
+      "sampling_diagnostics": {
+        "n": 1000,
+        "clipped_share": 0.031,
+        "glucose_clipped_share": 0.0,
+        "first_pass_inconsistent_share": 0.851,
+        "redrawn_rows": 5766,
+        "clipped_after_max_rounds": null,
+        "consistent_without_clipping_share": 0.992,
+        "seconds": 0.0274,
+        "filled_from_marginals": [
+          "state"
+        ],
+        "seed": 42,
+        "label": "SYNTHETIC",
+        "warning": null,
+        "rejection_rate": 0.851
       },
-      "run_type": "mock",
-      "status_banner": "DEMO (mock data)"
+      "synthetic": true,
+      "banner": "MOCK DEMO \u2014 not NFHS-5",
+      "model_used": "CVAE",
+      "scope": "Measured BMI, known blood-pressure status and finite glucose; both sexes; complete encoded TRAIN rows.",
+      "weighting": "unweighted sample",
+      "uncertainty_note": "Monte Carlo variation of the synthetic cohort conditional on the fitted model; does not measure model or survey uncertainty.",
+      "disclaimer": "SYNTHETIC scenario exploration for elevated glucose (proxy). Not a medical diagnosis, individual prediction, treatment recommendation, or causal effect. Consult a qualified healthcare professional.",
+      "note": "Descriptive synthetic scenario comparison; what-if is not causal.",
+      "label": "alternative",
+      "delta_pp": -0.2
     }
-  ]
+  ],
+  "model_fingerprint": "8b6406c967b5cc0ff07b23cb819579ac8709085538f2f426d673e16ca9e31b11",
+  "disclaimer": "SYNTHETIC scenario exploration for elevated glucose (proxy). Not a medical diagnosis, individual prediction, treatment recommendation, or causal effect. Consult a qualified healthcare professional.",
+  "weighting": "unweighted sample",
+  "uncertainty_note": "Monte Carlo variation of the synthetic cohort conditional on the fitted model; does not measure model or survey uncertainty.",
+  "note": "Differences describe synthetic scenarios, not causal effects.",
+  "banner": "MOCK DEMO \u2014 not NFHS-5; synthetic rates are not research results"
 }
 ```
 

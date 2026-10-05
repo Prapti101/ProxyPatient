@@ -252,8 +252,12 @@ def dcr(train_real, val_real, gen, spec, seed, n_ref=50_000, n_q=2_000):
 
     def stats(q):
         q = q.sample(min(n_q, len(q)), random_state=seed)
-        d = nn_.kneighbors(_feat(q, spec, mu, sd)[0])[0][:, 0]
-        return {"median": round(float(np.median(d)), 5), "p5": round(float(np.percentile(d, 5)), 5),
+        queries = _feat(q, spec, mu, sd)[0]
+        indices = nn_.kneighbors(queries, return_distance=False)[:, 0]
+        # Recompute from coordinate differences: brute-force squared-distance
+        # cancellation otherwise reports nonzero distances for identical rows.
+        d = np.linalg.norm(queries - X[indices], axis=1)
+        return {"minimum": round(float(np.min(d)), 5), "median": round(float(np.median(d)), 5), "p5": round(float(np.percentile(d, 5)), 5),
                 "share_exact_copy": round(float((d < 1e-9).mean()), 6), "n_query": int(len(q))}
     return {"reference": f"{len(ref):,} in-scope TRAIN rows (standardised numeric space)",
             "real_val_to_train": stats(val_real), "generated_to_train": stats(gen)}

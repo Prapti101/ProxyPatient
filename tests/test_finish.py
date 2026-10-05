@@ -42,6 +42,11 @@ def test_checkpoint_serving_run_combinations(mock_model_dir, tmp_path, monkeypat
             assert generated.status_code == 200, generated.text
             result = generated.json()
             assert result['run_type'] == run_type and result['preliminary'] == (run_type == 'quick')
+            if not demo:
+                assert result['examples'] is None
+                assert result['examples_status'] == 'withheld: near-copy check missing or not passed'
+            else:
+                assert len(result['examples']) == 3
             compared = client.post('/compare', json={'scenarios': [{'label': 'a', **request}, {'label': 'b', **request}]})
             assert compared.status_code == 200, compared.text
             assert compared.json()['run_type'] == run_type
