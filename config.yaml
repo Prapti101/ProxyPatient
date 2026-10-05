@@ -242,3 +242,18 @@ baselines:
 
 preprocessing:
   women_height_min_share: 0.5
+
+# Reduced untuned private run; independent full-run support remains unchanged.
+quick:
+  min_rows_per_sex: 2000
+  cvae_train_rows: 100000
+  cvae_epochs: 6
+  baseline_train_rows: 20000
+  baseline_epochs: 15
+  evaluation_rows: 10000
+mock_run:
+  cvae_train_rows: 4000
+  cvae_epochs: 2
+  baseline_train_rows: 3000
+  baseline_epochs: 1
+  evaluation_rows: 1500

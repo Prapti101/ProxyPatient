@@ -107,15 +107,23 @@ def train(args, cfg):
         print(f"*** {MOCK_BANNER} *** (smoke run; outputs are NOT a shipped model)")
 
     tr_raw, va_raw = load_frames(args, cfg)
-    if args.max_rows and not args.mock and len(tr_raw) > args.max_rows:
+    if args.run_type != "quick" and args.max_rows and not args.mock and len(tr_raw) > args.max_rows:
         tr_raw = tr_raw.sample(args.max_rows, random_state=args.seed)
     tr, scope_tr = apply_scope(tr_raw, cfg, args.scope)
     va, scope_va = apply_scope(va_raw, cfg, args.scope)
     spec = build_spec(cfg, use_state=False if args.no_state else None, generate_bp=args.generate_bp, training_df=tr)
+    if args.run_type == "quick":
+        from models.quick import stratified_train_sample
+        eligibility = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+        require_sex_support(eligibility, cfg, mock=args.mock, quick=True)
+        tr = stratified_train_sample(tr.loc[eligibility.retained_mask],
+             args.max_rows or int(cfg["quick"]["cvae_train_rows"]),
+             30 if args.mock else int(cfg["quick"]["min_rows_per_sex"]), args.seed,
+             float(cfg["outcome"]["threshold_mg_dl"]))
     pre = fit_preproc(raw_generated(tr, spec), spec)
     pre.meta.update(run_fields(args.run_type))
     a_tr, a_va = make_arrays(tr, pre), make_arrays(va, pre)
-    require_sex_support(a_tr, cfg, mock=args.mock)
+    require_sex_support(a_tr, cfg, mock=args.mock, quick=args.run_type == "quick")
     if len(a_va.cont) < 30:
         raise ValueError("Insufficient complete validation rows")
     from models.privacy import suppress_count, safe_public_output
@@ -131,6 +139,7 @@ def train(args, cfg):
     patience = int(args.patience or mcfg.get("early_stopping_patience", 8))
 
     log = {"started": datetime.now(timezone.utc).isoformat(), "mock": bool(args.mock),
+           "min_rows_per_sex": 30 if args.mock else int(cfg["quick" if args.run_type == "quick" else "model"]["min_rows_per_sex"]),
            "device": device, "variant": args.variant, "glucose_head": args.glucose_head,
            "n_train": len(a_tr.cont), "n_val": len(a_va.cont),
            "dropped_incomplete": {"train": a_tr.n_dropped, "val": a_va.n_dropped},

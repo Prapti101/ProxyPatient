@@ -310,12 +310,14 @@ def default_paths(models_dir: str = MODELS_DIR) -> dict:
     }
 
 
-def require_sex_support(arr, cfg, mock=False):
-    minimum = 30 if mock else int(cfg.get("model", {}).get("min_rows_per_sex", 5000))
+def require_sex_support(arr, cfg, mock=False, quick=False):
+    minimum = 30 if mock else int(cfg.get("quick" if quick else "model", {}).get("min_rows_per_sex", 2000 if quick else 5000))
     if minimum < 30:
         raise ValueError("min_rows_per_sex cannot be below privacy minimum 30")
     if any(arr.support.get(str(sex), 0) < minimum for sex in (0, 1)):
-        raise ValueError(f"Insufficient complete rows per sex after encoding: require at least {minimum} for both sexes")
+        from models.privacy import suppress_count
+        counts = {str(sex): suppress_count(arr.support.get(str(sex), 0)) for sex in (0, 1)}
+        raise ValueError(f"Insufficient complete rows per sex after encoding: require at least {minimum} for both sexes; encoded_per_sex={counts}")
     return arr.support
 
 

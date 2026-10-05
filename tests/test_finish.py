@@ -38,3 +38,48 @@ def test_checkpoint_serving_run_combinations(mock_model_dir, tmp_path, monkeypat
     else:
         with pytest.raises(generator.ModelUnavailable):
             generator._load()
+
+
+def test_quick_imbalanced_encoded_train_preserves_sex_and_outcome():
+    from models.quick import stratified_train_sample
+    from models.common import load_config
+    from models.data import apply_scope, build_spec, fit_preproc, raw_generated, make_arrays, require_sex_support
+    from tests.mock_data import make_mock_v2
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(24000), cfg)
+    spec = build_spec(cfg, training_df=frame)
+    eligible = make_arrays(frame, fit_preproc(raw_generated(frame, spec), spec))
+    source = frame.loc[eligible.retained_mask]
+    sample = stratified_train_sample(source, 6500, cfg['quick']['min_rows_per_sex'], 42, cfg['outcome']['threshold_mg_dl'])
+    assert len(sample) == 6500
+    assert sample.index.is_unique and set(sample.index) <= set(source.index)
+    selected = make_arrays(sample, fit_preproc(raw_generated(sample, spec), spec))
+    require_sex_support(selected, cfg, quick=True)
+    with pytest.raises(ValueError, match='5000'):
+        require_sex_support(selected, cfg)
+    assert selected.support['1'] >= 2000
+    for sex in (0, 1):
+        real = source[source.sex == sex]
+        subset = sample[sample.sex == sex]
+        assert abs((real.glucose_raw >= 200).mean() - (subset.glucose_raw >= 200).mean()) < .002
+    assert sample.equals(stratified_train_sample(source, 6500, 2000, 42, 200))
+    with pytest.raises(ValueError, match='encoded_per_sex.*None'):
+        stratified_train_sample(source[source.sex == 0], 6500, 2000, 42, 200)
+
+
+def test_quick_settings_and_pipeline_stage_flags(monkeypatch, tmp_path):
+    from models import run_all, train_cvae, train_baselines, eval_dev
+    cfg = run_all.load_config()
+    calls = []
+    monkeypatch.setattr(train_cvae, 'main', lambda argv: calls.append(argv))
+    monkeypatch.setattr(train_baselines, 'main', lambda argv: calls.append(argv))
+    monkeypatch.setattr(eval_dev, 'main', lambda argv: calls.append(argv))
+    for stage in ('train_cvae', 'train_baselines', 'eval_dev'):
+        args = run_all.parse_args(['--data-dir', '/unread-private', '--quick', '--out-dir', str(tmp_path), '--_stage', stage])
+        run_all.stage(args)
+    assert '--extra-cvae' not in sum(calls, [])
+    assert str(cfg['quick']['cvae_train_rows']) in calls[0]
+    assert str(cfg['quick']['cvae_epochs']) in calls[0]
+    assert '--quick' in calls[1] and str(cfg['quick']['baseline_train_rows']) in calls[1]
+    assert str(cfg['quick']['baseline_epochs']) in calls[1]
+    assert str(cfg['quick']['evaluation_rows']) in calls[2]

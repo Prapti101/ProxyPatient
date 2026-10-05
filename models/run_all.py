@@ -47,7 +47,7 @@ def sanity(args):
     scoped, _ = apply_scope(raw, cfg)
     spec = build_spec(cfg, training_df=scoped)
     arr = make_arrays(scoped, fit_preproc(raw_generated(scoped, spec), spec))
-    require_sex_support(arr, cfg, mock=args.mock)
+    require_sex_support(arr, cfg, mock=args.mock, quick=args.quick)
     if 'log_glucose' not in spec.cont_cols:
         raise ValueError('Generated glucose is required')
 
@@ -116,6 +116,7 @@ def stage(args):
     work.mkdir(parents=True, exist_ok=True)
     data = ['--mock'] if args.mock else ['--data-dir', args.data_dir]
     quick = args.quick or args.mock
+    reduced = load_config()["mock_run" if args.mock else "quick"]
     started = time.monotonic()
     try:
         if name == 'step0':
@@ -129,16 +130,16 @@ def stage(args):
             from models.train_cvae import main
             main(data + ['--cpu', '--out-dir', str(work/'model')]
                  + ['--run-type', 'quick' if args.quick else 'full']
-                 + (['--epochs', '2', '--max-rows', '4000' if args.mock else '50000'] if quick else []))
+                 + (['--epochs', str(reduced['cvae_epochs']), '--max-rows', str(reduced['cvae_train_rows'])] if quick else []))
         elif name == 'train_baselines':
             from models.train_baselines import main
             main(data + ['--cpu', '--out-dir', str(work/'baselines'), '--log-out', str(work/'baselines_train_log.json')]
-                 + (['--epochs', '1', '--subsample', '3000' if args.mock else '50000'] if quick else []))
+                 + (['--epochs', str(reduced['baseline_epochs']), '--subsample', str(reduced['baseline_train_rows'])] + (['--quick'] if args.quick else []) if quick else []))
         elif name == 'eval_dev':
             from models.eval_dev import main
             main(data + ['--cvae-weights', str(work/'model/cvae_weights.pt'), '--baselines-dir', str(work/'baselines'),
                          '--out-json', str(work/'model_comparison_dev.json')]
-                 + (['--n-eval', '1500' if args.mock else '5000'] if quick else []))
+                 + (['--n-eval', str(reduced['evaluation_rows'])] if quick else []))
         elif name == 'final_test':
             from models.eval_dev import main
             main(data + ['--final-test', '--cvae-weights', str(root/'private_outputs/cvae_weights.pt'),
@@ -160,7 +161,7 @@ def parse_args(argv=None):
     parser.add_argument('--data-dir', default=os.environ.get('PP_DATA_DIR'))
     parser.add_argument('--out-dir', default=os.environ.get('PP_RUN_DIR', 'outputs/run'))
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--quick', action='store_true', help='small CPU smoke run; real per-sex guards still apply')
+    mode.add_argument('--quick', action='store_true', help='stratified reduced untuned run; configured quick per-sex guard')
     mode.add_argument('--full', action='store_true', help='configuration defaults, CPU')
     parser.add_argument('--skip-baselines', action='store_true')
     parser.add_argument('--skip-dae-benchmark', action='store_true')
@@ -231,6 +232,8 @@ def main(argv=None):
     metrics_name = 'final_run_metrics.json' if args.final_test else 'run_metrics.json'
     safe = root/'safe_outputs'
     write_json({**run_fields(args.run_type), 'mock': args.mock, 'stages': metrics, 'skipped_stages': args.skipped_stages}, str(safe/metrics_name))
+    if not args.final_test:
+        write_json({**run_fields(args.run_type), 'stages': metrics}, str(safe/'timings.json'))
     manifest = {**run_fields(args.run_type), 'mock': args.mock, 'skipped_stages': args.skipped_stages,
                 'files': [{'file': path.name, 'sha256': sha256_file(str(path))}
                           for path in sorted(safe.iterdir()) if path.suffix in ('.json', '.md') and path.name != 'manifest.json']}

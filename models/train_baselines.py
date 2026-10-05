@@ -129,6 +129,7 @@ def main(argv=None):
     p.add_argument("--epochs", type=int, default=None, help="default: config baselines.epochs or 100")
     p.add_argument("--seed", type=int, default=None)
     p.add_argument("--cpu", action="store_true")
+    p.add_argument("--quick", action="store_true")
     p.add_argument("--mock", action="store_true", help="MOCK DATA smoke run (tests only)")
     args = p.parse_args(argv)
     cfg = load_config()
@@ -142,9 +143,18 @@ def main(argv=None):
     tr, scope = apply_scope(raw, cfg)
     spec = build_spec(cfg, use_state=False, training_df=tr)
     arrays = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
-    require_sex_support(arrays, cfg, mock=args.mock)
+    require_sex_support(arrays, cfg, mock=args.mock, quick=args.quick)
     args.subsample = args.subsample or int(cfg.get("baselines", {}).get("subsample_rows", 100_000))
-    t = stratified_subsample(joint_table(tr, spec), args.subsample, args.seed)
+    if args.quick:
+        from models.quick import stratified_train_sample
+        tr = stratified_train_sample(tr.loc[arrays.retained_mask], args.subsample,
+              30 if args.mock else int(cfg["quick"]["min_rows_per_sex"]), args.seed,
+              float(cfg["outcome"]["threshold_mg_dl"]))
+        t = joint_table(tr, spec)
+        selected = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
+        require_sex_support(selected, cfg, mock=args.mock, quick=True)
+    else:
+        t = stratified_subsample(joint_table(tr, spec), args.subsample, args.seed)
     epochs = args.epochs or int(cfg.get("baselines", {}).get("epochs", 100))
     import torch
     gpu = torch.cuda.is_available() and not args.cpu
@@ -163,6 +173,8 @@ def main(argv=None):
         log["models"][kind] = {"train_seconds": secs, "probe_rejection_sampling": st}
         print(f"  {kind}: {secs}s, probe acceptance {st['acceptance_rate']}, fill {st['fill_rate']}")
     log["peak_memory_mib"] = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024, 2)
+    from models.run_status import resolve_run_type, run_fields
+    log.update(run_fields(resolve_run_type(args.mock, args.quick)))
     write_json(log, args.log_out)
     return log
 
