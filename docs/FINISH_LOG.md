@@ -31,3 +31,7 @@ R7: Added preset/mock-report/private-quick runbook and evidence-based viva notes
 2026-10-05T10:45:05.559261+05:30: Push attempt 7, p2-finish, R7 c2302b9: SUCCESS.
 
 R8: Updated run-type/quick/full/report/demo guidance, external P4 contract backlog, eight-condition consistency and open questions. Added explicit P1 question about private DAE script/commit and actual test-row exposure; no provenance guess. Historical overnight/review records remain marked historical rather than rewritten as current facts. DONE. Full suite: 100 passed, 0 failed/skipped; no implementation guards weakened.
+
+2026-10-05 (Asia/Kolkata): Push attempt 8, p2-finish, R8 5c3fa70: SUCCESS.
+
+Final self-review: Fixed full baseline training admitting rows rejected by complete encoding, missing shared checkpoint run-type validation/package type mismatch, invalid parsed state yielding a server error instead of 422, malformed model-table ingestion, and empty-marker recovery bypass. Enum now appears in the machine-readable response schema. These are scoped integrity/contract fixes with new regressions; no test or threshold weakened. DONE. Full suite: 104 passed, 0 failed/skipped in 40.41 seconds, one upstream TestClient deprecation warning. All valid serving combinations now exercise health, generate, compare and both report endpoints; stale/malformed packages are pending. Exact default --mock --quick completed; packaged API ingestion, hash, row-export and small-cell scans passed.

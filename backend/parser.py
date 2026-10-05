@@ -85,6 +85,10 @@ def propose(req):
     state = re.search(r"\bstate\s*(\d+)\b", text)
     if state:
         condition["state"] = int(state.group(1))
-    return ParseResponse(parsed_condition=Condition(**condition), raw_text=req.text, unresolved=unresolved,
+    try:
+        proposed = Condition(**condition)
+    except ValueError as exc:
+        raise HTTPException(422, "Unsupported parsed condition; choose values from /options") from exc
+    return ParseResponse(parsed_condition=proposed, raw_text=req.text, unresolved=unresolved,
                          optional_token_hook=hook)
 

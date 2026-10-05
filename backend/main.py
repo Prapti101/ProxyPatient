@@ -11,8 +11,9 @@ Endpoints:
     GET  /profiles     -> baseline reference profiles (from aggregates.json)
     POST /generate     -> generate synthetic cohort + compute outcome stat
     POST /compare      -> compare multiple what-if scenarios
-    GET  /validation   -> validation report (from P3's validation_report.json)
-    POST /parse        -> (optional) parse natural language condition (P3's parser)
+    GET  /validation   -> verified packaged development report
+    GET  /model-comparison -> measured per-model metrics
+    POST /parse        -> demo-only guarded rule-based proposals
 
 RULES ENFORCED:
   - Glucose is never a conditioning input (blocked in schemas.py).
@@ -20,7 +21,7 @@ RULES ENFORCED:
   - Outcome always labelled "elevated glucose (proxy)".
   - Disclaimer always included in every response that shows a rate.
   - All numbers come from code — nothing hardcoded.
-  - Switch from stub to real model: change 1 import line below.
+  - Run provenance and compatible private artifacts are required.
 """
 
 import os

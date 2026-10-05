@@ -1,7 +1,7 @@
 """Strict version 2 request/response contracts; options come from configuration."""
 import os
 import re
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from models.common import load_config, parse_age_band
 
@@ -128,7 +128,7 @@ class OutcomeStat(StrictModel):
 
 
 class RunStatus(StrictModel):
-    run_type: Optional[str] = None
+    run_type: Optional[Literal["mock", "quick", "full"]] = None
     preliminary: bool = False
     status_banner: str = "UNAVAILABLE"
     run_note: Optional[str] = None

@@ -244,6 +244,26 @@ def test_one_command_quick_mock_pipeline_and_public_scan(tmp_path, monkeypatch):
         evaluation = client.get('/validation').json()['metrics']
         assert 'marginals' in evaluation['models']['CVAE']
         assert 'wasserstein' in evaluation['models']['CVAE']['marginals']['glucose_raw']
+        # Even checksum-consistent malformed/stale packages must not become complete reports.
+        import copy
+        for name, key, value in [('model_comparison_dev.json', 'models', []),
+                                 ('model_card.json', 'model_fingerprint', 'different-fitted-model'),
+                                 ('model_comparison_dev.json', 'run_type', 'quick')]:
+            path = tmp_path/'safe_outputs'/name
+            original = path.read_text()
+            altered = json.loads(original)
+            altered[key] = value
+            path.write_text(json.dumps(altered))
+            changed_manifest = copy.deepcopy(manifest)
+            from models.common import sha256_file
+            for entry in changed_manifest['files']:
+                if entry['file'] == name:
+                    entry['sha256'] = sha256_file(str(path))
+            (tmp_path/'safe_outputs/manifest.json').write_text(json.dumps(changed_manifest))
+            pending = client.get('/validation').json()
+            assert pending['status'] == 'pending' and pending['models'] is None
+            path.write_text(original)
+            (tmp_path/'safe_outputs/manifest.json').write_text(json.dumps(manifest))
         monkeypatch.setenv('PP_REPORT_DIR', str(tmp_path/'missing'))
         payload = client.get('/validation').json()
         assert payload['status'] == 'pending' and payload['metrics'] is None

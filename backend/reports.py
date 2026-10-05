@@ -31,6 +31,9 @@ def packaged_report(comparison=False):
             or report['run_type'] != bundle.ckpt['run_type']
             or bool(report['_meta']['mock']) != bundle.ckpt['is_mock']):
             raise ValueError('Report provenance does not match served checkpoint')
+        if (not isinstance(report.get('models'), dict) or not report['models']
+            or not all(isinstance(value, dict) for value in report['models'].values())):
+            raise ValueError('Invalid packaged model table')
         support = report['_meta'].get('n_eval_rows_all_models_filled')
         if not isinstance(support, int) or support < MIN_CELL_SIZE:
             pending['note'] = 'Insufficient retained support; evaluation statistics suppressed'

@@ -154,7 +154,7 @@ def main(argv=None):
         selected = make_arrays(tr, fit_preproc(raw_generated(tr, spec), spec))
         require_sex_support(selected, cfg, mock=args.mock, quick=True)
     else:
-        t = stratified_subsample(joint_table(tr, spec), args.subsample, args.seed)
+        t = stratified_subsample(joint_table(tr.loc[arrays.retained_mask], spec), args.subsample, args.seed)
     epochs = args.epochs or int(cfg.get("baselines", {}).get("epochs", 100))
     import torch
     gpu = torch.cuda.is_available() and not args.cpu

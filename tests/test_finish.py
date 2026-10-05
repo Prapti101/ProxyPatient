@@ -30,11 +30,23 @@ def test_checkpoint_serving_run_combinations(mock_model_dir, tmp_path, monkeypat
         from backend.main import app
         from fastapi.testclient import TestClient
         with TestClient(app) as client:
-            for endpoint in ('/health', '/validation'):
+            for endpoint in ('/health', '/validation', '/model-comparison'):
                 result = client.get(endpoint).json()
                 assert result['run_type'] == run_type
                 assert result['preliminary'] == (run_type == 'quick')
                 assert result['status_banner'] == {'mock': 'DEMO (mock data)', 'quick': 'PRELIMINARY (quick run)', 'full': 'FULL RUN'}[run_type]
+            condition = dict(sex=0, age_band='25-34', residence='urban', wealth_quintile=3,
+                             bmi_band='normal', hypertension=0, tobacco=0, alcohol=0)
+            request = {'condition': condition, 'n': 100}
+            generated = client.post('/generate', json=request)
+            assert generated.status_code == 200, generated.text
+            result = generated.json()
+            assert result['run_type'] == run_type and result['preliminary'] == (run_type == 'quick')
+            compared = client.post('/compare', json={'scenarios': [{'label': 'a', **request}, {'label': 'b', **request}]})
+            assert compared.status_code == 200, compared.text
+            assert compared.json()['run_type'] == run_type
+            assert all(scenario['run_type'] == run_type for scenario in compared.json()['scenarios'])
+
     else:
         with pytest.raises(generator.ModelUnavailable):
             generator._load()
@@ -189,3 +201,47 @@ def test_started_marker_with_metrics_refuses_retry(tmp_path, mock_model_dir, mon
     (tmp_path/'safe_outputs/model_comparison_final_test.json').write_text('{}')
     with pytest.raises(RuntimeError, match='metrics exist'):
         run_all.main(['--mock', '--out-dir', str(tmp_path), '--final-test', '--i-understand-this-is-the-single-final-run', '--confirm-previous-final-run-crashed'])
+
+
+def test_invalid_parsed_state_returns_validation_error(real_generator_env):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    with TestClient(app) as c:
+        r = c.post('/parse', json={'text': 'state 26'})
+        assert r.status_code == 422 and 'Unsupported parsed condition' in r.text
+
+
+def test_empty_final_marker_cannot_bypass_lock(tmp_path):
+    from models.run_all import main
+    (tmp_path/'FINAL_TEST_STARTED.json').write_text('{}')
+    with pytest.raises(RuntimeError, match='Invalid final marker'):
+        main(['--mock', '--final-test', '--i-understand-this-is-the-single-final-run', '--confirm-previous-final-run-crashed', '--out-dir', str(tmp_path)])
+
+
+def test_package_cannot_relabel_checkpoint(tmp_path, mock_model_dir):
+    import shutil
+    import argparse
+    from models.run_all import package
+    shutil.copytree(mock_model_dir, tmp_path/'working/model')
+    with pytest.raises(ValueError, match='run_type'):
+        package(argparse.Namespace(out_dir=str(tmp_path), mock=True, run_type='full', skipped_stages=[]))
+    assert not (tmp_path/'private_outputs').exists()
+
+
+def test_full_baselines_use_only_encoding_retained_rows(tmp_path, monkeypatch):
+    from models import train_baselines
+    from tests import mock_data
+    frame = mock_data.make_mock_v2(3000)
+    frame.loc[frame.index[:100], 'any_tobacco'] = 2
+    frame.loc[frame.index[100:200], 'education'] = 99
+    monkeypatch.setattr(mock_data, 'make_mock_v2', lambda *args, **kwargs: frame.copy())
+    def fit(kind, table, columns, epochs, seed, gpu):
+        assert set(table.tobacco) <= {'0', '1'} and set(table.education) <= {'0', '1', '2', '3'}
+        class Fitted:
+            def save(self, path):
+                pass
+        return Fitted(), 0.
+    monkeypatch.setattr(train_baselines, 'fit_one', fit)
+    monkeypatch.setattr(train_baselines, 'rejection_sample', lambda *args, **kwargs: (None, {'acceptance_rate': 1., 'fill_rate': 1.}))
+    result = train_baselines.main(['--mock', '--cpu', '--epochs', '1', '--out-dir', str(tmp_path), '--log-out', str(tmp_path/'log.json')])
+    assert result['n_train_rows_used'] < len(frame)-100

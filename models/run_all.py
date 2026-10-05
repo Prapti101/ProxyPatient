@@ -63,6 +63,8 @@ def package(args):
     validate_checkpoint(checkpoint.ckpt)
     if checkpoint.ckpt['is_mock'] != bool(args.mock):
         raise ValueError('Packaging provenance does not match checkpoint MOCK mode')
+    if checkpoint.ckpt['run_type'] != args.run_type:
+        raise ValueError('Packaging run_type does not match checkpoint provenance')
     # Preserve previous products, but never mix them into a new package.
     for directory in (safe, private):
         if directory.exists() and any(directory.iterdir()):
@@ -203,9 +205,11 @@ def main(argv=None):
         raise RuntimeError('Another workflow is active in this frozen directory') from exc
     try:
         previous = json.loads(marker.read_text()) if marker.exists() else None
-        if previous and (not args.final_test or previous.get('status') == 'completed'):
+        if previous is not None and (not isinstance(previous, dict) or not previous):
+            raise RuntimeError('Invalid final marker; recovery refused')
+        if previous is not None and (not args.final_test or previous.get('status') == 'completed'):
             raise RuntimeError('Frozen output directory has already entered completed final-test stage; do not retrain or repeat')
-        if previous:
+        if previous is not None:
             if previous.get('status', 'started') != 'started':
                 raise RuntimeError('Unknown final marker state; recovery refused')
             if (root/'safe_outputs/model_comparison_final_test.json').exists():

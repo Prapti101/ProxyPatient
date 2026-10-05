@@ -24,6 +24,10 @@ def fingerprint(cfg, spec):
 
 def validate_checkpoint(checkpoint, cfg=None):
     cfg = cfg or load_config()
+    from models.run_status import RUN_TYPES
+    if (checkpoint.get("run_type") not in RUN_TYPES
+        or (checkpoint["run_type"] == "mock") != bool(checkpoint.get("is_mock"))):
+        raise RuntimeError("Checkpoint run_type missing, invalid or inconsistent with MOCK provenance")
     from models.data import Spec
     spec = Spec.from_dict(checkpoint['preproc']['spec'])
     expected = build_spec(cfg, use_state=spec.use_state, generate_bp=spec.generate_bp)
