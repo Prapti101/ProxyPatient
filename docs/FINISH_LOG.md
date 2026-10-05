@@ -11,3 +11,7 @@ R2: Added configured quick defaults, complete-row sex/outcome stratification and
 2026-10-05 (Asia/Kolkata): Push attempt 2, p2-finish, R2 c3b4f88: SUCCESS.
 
 R3: Canonical eval_dev report ingestion for validation/model-comparison, PP_REPORT_DIR, typed pending/complete responses, checkpoint/package identity and checksum checks. No architecture ranking or fabricated pending numbers. Pipeline regression reads actual packaged mock outputs through both endpoints. DONE. Full suite: 96 passed, 0 failed/skipped; actual mock package API ingestion passed.
+
+2026-10-05 (Asia/Kolkata): Push attempt 3, p2-finish, R3 cc82ca2: SUCCESS.
+
+R4: Imported ONLY the three added P3 files (all <5KB; no data-like additions); relocated two corrected pending templates under docs/p3, archived untouched parser under legacy (never imported). Reconciled aliases/relative BMI into one backend parser, with optional strictly offline lazy token annotations, never condition generation. Added shared-suppression subgroup fidelity and held-out real-vs-synthetic classification to canonical eval_dev; existing P2 metrics reused. Removed template upload identifiers and unsupported bootstrap/temporal claims. DONE. Full suite: 98 passed, 0 failed/skipped; P3 phrase/offline-hook/suppression/classifier tests and packaged ingestion passed.

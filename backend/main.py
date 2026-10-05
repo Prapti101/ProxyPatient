@@ -278,44 +278,10 @@ def get_model_comparison():
 @app.post("/parse", response_model=ParseResponse, tags=["NLP"])
 def parse_condition(req: ParseRequest):
     """Demo-only rule-based parser. Returns proposals for confirmation; runs nothing."""
-    import re
     if os.environ.get("PP_DEMO_MOCK") != "1":
         raise HTTPException(403, "Rule-based parser is demo-only; select explicit full conditions in real mode")
-    text = req.text.lower()
-    if re.search(r"glucose|hba1c|sb74|smb74", text):
-        raise HTTPException(422, "glucose is the outcome, not an input")
-    condition, unresolved = {}, []
-    if re.search(r"\bunchanged\b|same as baseline", text):
-        return ParseResponse(parsed_condition=Condition(), raw_text=req.text)
-    if re.search(r"\b(female|women|woman)\b", text):
-        condition["sex"] = 0
-    elif re.search(r"\b(male|men|man)\b", text):
-        condition["sex"] = 1
-    for residence in ("urban", "rural"):
-        if re.search(r"\b"+residence+r"\b", text):
-            condition["residence"] = residence
-    for band in sorted(set(_cfg["whatif_options"]["age_band"]["women_options"] + _cfg["whatif_options"]["age_band"]["men_options"])):
-        if band in text:
-            condition["age_band"] = band
-    for key, words in [("tobacco", r"tobacco|smok(?:e|ing|er)"), ("alcohol", r"alcohol|drink(?:ing)?")]:
-        negative = re.search(r"\b(?:no|without|not|never|do not|does not|don't)\s+(?:use\s+|consume\s+|drink\s+)?(?:"+words+r")\b", text)
-        negative = negative or (key == "alcohol" and re.search(r"drink\s+no\s+alcohol", text))
-        if negative:
-            condition[key] = 0
-        elif re.search(r"\b(?:"+words+r")\b", text):
-            condition[key] = 1
-    if "improved bmi" in text:
-        levels = list(_cfg["bmi"]["bands"])
-        baseline = req.baseline.bmi_band if req.baseline else None
-        if baseline in levels and levels.index(baseline) > levels.index("normal"):
-            condition["bmi_band"] = levels[levels.index(baseline)-1]
-        else:
-            unresolved.append("improved BMI: choose a concrete BMI band")
-    else:
-        for band in _cfg["bmi"]["bands"]:
-            if re.search(r"\b"+band+r"\b", text):
-                condition["bmi_band"] = band
-    return ParseResponse(parsed_condition=Condition(**condition), raw_text=req.text, unresolved=unresolved)
+    from backend.parser import propose
+    return propose(req)
 
 
 def _state_options():

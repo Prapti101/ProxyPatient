@@ -288,6 +288,46 @@ def tstr(train_real, test_real, gen, spec, thr, seed):
             "features": "conditions + age, bmi, height, waist, hip, education, bp_ever_checked (no glucose)"}
 
 
+
+def real_vs_synthetic(train_real, real, gen, spec, seed):
+    """Held-out distinguishability; scaling fitted on original TRAIN only."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import train_test_split
+    from models.privacy import suppress_count, MIN_CELL_SIZE
+    n = min(len(real), len(gen), 10000)
+    if int(np.ceil(.3 * n)) < MIN_CELL_SIZE or int(.7 * n) < MIN_CELL_SIZE:
+        return {'status': 'insufficient support', 'roc_auc': None,
+                'n_real': suppress_count(n), 'n_synthetic': suppress_count(n)}
+    _, mu, sd = _feat(train_real, spec)
+    r = real.sample(n, random_state=seed)
+    g = gen.sample(n, random_state=seed)
+    X = np.concatenate([_feat(r, spec, mu, sd)[0], _feat(g, spec, mu, sd)[0]])
+    y = np.concatenate([np.zeros(n, dtype=int), np.ones(n, dtype=int)])
+    train, held = train_test_split(np.arange(len(y)), test_size=.3, stratify=y, random_state=seed)
+    classifier = LogisticRegression(max_iter=1000).fit(X[train], y[train])
+    return {'status': 'complete', 'roc_auc': round(float(roc_auc_score(y[held], classifier.predict_proba(X[held])[:, 1])), 5),
+            'n_real': suppress_count(n), 'n_synthetic': suppress_count(n),
+            'n_classifier_train': suppress_count(len(train)), 'n_classifier_heldout': suppress_count(len(held)),
+            'note': 'Held-out source classification on matched retained VAL cohorts; 0.5 means weak distinguishability for this classifier only, not proof of privacy or fidelity.'}
+
+
+def subgroup_fidelity(real, gen, spec, threshold):
+    """One marginal subgroup rate check using the canonical finite-glucose outcome."""
+    from models.privacy import suppress_count, suppress_stat, MIN_CELL_SIZE
+    rows = []
+    for variable in spec.cond_names:
+        for level in spec.cond_levels[variable]:
+            r, g = real[real[variable] == level], gen[gen[variable] == level]
+            support = min(len(r), len(g))
+            enough = support >= MIN_CELL_SIZE
+            rows.append({'variable': variable, 'level': level,
+                         'n_real': suppress_count(len(r)), 'n_synthetic': suppress_count(len(g)),
+                         'real_rate': suppress_stat(float(outcome(r, threshold).mean()), support) if enough else None,
+                         'synthetic_rate': suppress_stat(float(outcome(g, threshold).mean()), support) if enough else None,
+                         'warning': None if enough else 'Fewer than 30 respondents; counts/statistics suppressed'})
+    return {'cells': rows, 'note': 'Marginal subgroups, not full joint profiles; privacy support is not a statistical stability guarantee.'}
+
 def coverage_report(conditions, retained):
     from models.privacy import suppress_count, suppress_stat
     retained = np.asarray(retained, dtype=bool)
@@ -394,6 +434,8 @@ def run(args, cfg):
             "consistency": consistency(g, cfg),
             "nearest_record": dcr(tr_u, real, g, spec, args.seed),
             "tstr": tstr(tr_u, real, g, spec, thr, args.seed),
+            "real_vs_synthetic": real_vs_synthetic(tr_u, real, g, spec, args.seed),
+            "subgroup_fidelity": subgroup_fidelity(real, g, spec, thr),
         }
     res = safe_public_output(res)
     write_json(res, args.out_json)

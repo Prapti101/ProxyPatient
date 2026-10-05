@@ -94,3 +94,54 @@ def test_reports_pending_missing_or_invalid_package(real_generator_env, tmp_path
         assert payload['run_type'] == 'mock'
     (tmp_path/'manifest.json').write_text('{bad')
     assert packaged_report()['status'] == 'pending'
+
+
+def test_p3_phrases_and_offline_hook_are_guarded(real_generator_env, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend import parser
+    monkeypatch.delenv('PP_BERT_MODEL_DIR', raising=False)
+    with TestClient(app) as c:
+        assert c.post('/parse', json={'text': 'elevated glucose'}).status_code == 422
+        assert 'outcome' in c.post('/parse', json={'text': 'high blood sugar'}).text
+        data = c.post('/parse', json={'text': 'improved body mass index', 'baseline': {'bmi_band': 'obese'}}).json()
+        assert data['parsed_condition']['bmi_band'] == 'overweight'
+        assert data['requires_confirmation'] and data['confidence'] is None
+        assert data['optional_token_hook']['status'] == 'disabled'
+        assert c.post('/parse', json={'text': 'improved BMI'}).json()['unresolved']
+        data = c.post('/parse', json={'text': 'unchanged trajectory'}).json()
+        assert not any(v is not None for v in data['parsed_condition'].values())
+        assert 'temporal' not in data['parser'] and data['parser'] == 'rule-based demo parser'
+        monkeypatch.setenv('PP_BERT_MODEL_DIR', str(tmp_path/'missing'))
+        assert c.post('/parse', json={'text': 'no tobacco'}).json()['optional_token_hook']['status'] == 'unavailable'
+        monkeypatch.setenv('PP_BERT_MODEL_DIR', str(tmp_path))
+        monkeypatch.setattr(parser, '_offline_pipeline', lambda directory: lambda text: [{'word': 'urban', 'entity_group': 'residence'}])
+        data = c.post('/parse', json={'text': 'urban women do not smoke'}).json()
+        assert data['parser'] == 'rule-based demo parser' and data['parsed_condition']['tobacco'] == 0
+        assert data['optional_token_hook']['used_for_conditions'] is False
+    assert not Path('parser.py').exists()
+    assert not Path('validation_report.json').exists()
+    assert not Path('model_comparision.json').exists()
+    for path in Path('docs/p3').glob('*.json'):
+        assert json.loads(path.read_text())['status'] == 'pending'
+
+
+def test_p3_subgroup_suppression_and_classifier_partitions():
+    from models.eval_dev import subgroup_fidelity, real_vs_synthetic, real_units, complete_rows
+    from models.data import apply_scope, build_spec
+    from models.common import load_config
+    from models.privacy import small_count_paths
+    from tests.mock_data import make_mock_v2
+    cfg = load_config()
+    frame, _ = apply_scope(make_mock_v2(2500), cfg)
+    spec = build_spec(cfg, training_df=frame)
+    real = real_units(frame, spec)
+    real = real[complete_rows(real, spec)].reset_index(drop=True)
+    rare = real.iloc[:20]
+    report = subgroup_fidelity(rare, rare, spec, 200)
+    assert not small_count_paths(report)
+    assert all(row['real_rate'] is None and row['synthetic_rate'] is None and row['warning'] for row in report['cells'])
+    assert real_vs_synthetic(real, rare, rare, spec, 42)['roc_auc'] is None
+    result = real_vs_synthetic(real, real, real.copy(), spec, 42)
+    assert result['status'] == 'complete' and 0 <= result['roc_auc'] <= 1
+    assert not small_count_paths(result)

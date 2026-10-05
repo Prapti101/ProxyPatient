@@ -210,6 +210,7 @@ class ParseResponse(StrictModel):
     parser: str = 'rule-based demo parser'
     requires_confirmation: bool = True
     unresolved: list[str] = Field(default_factory=list)
+    optional_token_hook: Optional[dict[str, Any]] = None
 
 
 class ReportResponse(RunStatus):
