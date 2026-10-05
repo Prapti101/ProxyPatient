@@ -1,0 +1,27 @@
+# Viva notes
+
+These answers describe implemented repository behavior. No private-data result has been verified here. Executed mock examples are committed in API_CONTRACT.md; they illustrate software wiring only.
+
+**Why a trained CVAE?** The encoder learns a latent representation during TRAIN/VAL fitting; the decoder generates new mixed-type rows from latent noise and a full profile. Generated glucose is an outcome. There is no LLM producing rows and no fallback that resamples respondents. A conditional model makes scenario inputs explicit; whether it reproduces real distributions still needs measured private validation.
+
+**Is this agentic?** The application is a plain request/response API with fixed preprocessing, generation and reporting code. It has no autonomous planner, tool-calling agent or language model deciding actions. The optional parser proposes simple condition changes for confirmation; it never starts generation itself.
+
+**What is the outcome?** Elevated glucose (proxy), computed from finite generated random capillary glucose at the configured threshold. It is not a diagnosis, individual prediction or treatment recommendation. Official units, special missing codes and measurement interpretation require the private codebook review. Glucose is never conditioned on or imputed.
+
+**What does a what-if difference mean?** A descriptive difference between conditional synthetic cohorts under one fitted model. It is not an estimated causal intervention. Rejection/clipping, scope and unsupported combinations can affect the output. A supported preset does not validate every possible modification.
+
+**What do the intervals mean?** Wilson Monte Carlo intervals for the finite generated cohort, conditional on the fitted model. They do not quantify fitted-model uncertainty or survey-design uncertainty. Generating more rows cannot establish scientific accuracy.
+
+**Why unweighted?** The implemented model and summaries use the observed unweighted encoded sample. Survey weights are not used to train a representative population model. Sex-specific scope and measurement support further restrict interpretation. A survey-representative claim would require a separate agreed design and validation.
+
+**What is validated?** The software tests strict inputs, frozen splits, finite outputs, fitted artifact compatibility, provenance, suppression, batching, packaging and API ingestion. eval_dev computes VAL marginal KS/Wasserstein/TVD, correlation differences, glucose tails, conditional outcome-rate fidelity, direction checks, condition consistency, nearest-record distance and TSTR. P3's additions provide held-out source classification and suppressed subgroup fidelity through that same report pipeline. Mock checks prove execution, not real-data quality; absent reports are pending.
+
+**Why TVAE and CTGAN?** They are established mixed-type tabular generator baselines implemented with the pinned ctgan package. They train on a stratified subset without the CVAE's optional state embedding, then use rejection sampling to match conditions. Thus the current comparison is not an equal-data/equal-state architecture experiment. All-model metrics use a shared retained subset; report coverage and limitations, not an automatic winner. GRU/CNN, if separately evaluated, are CVAE tabular ablation variants, not temporal models.
+
+**What does a quick run show?** It exercises the private TRAIN/VAL workflow with configured reduced sample sizes/epochs and both tabular baselines. Sex/outcome stratification reserves enough eligible rows per sex. Its banner says preliminary and results are indicative only. It supports planning via measured timing/RSS and can expose pipeline errors. It does not establish tuned performance, robust tail calibration or disclosure safety. Full mode keeps the stronger support guard and configured training budget.
+
+**How is privacy handled?** No survey rows or mock samples are saved by the model workflow or returned by the API. Fitted artifacts remain private; reports contain aggregates with respondent-backed counts/statistics below 30 suppressed. Model/marginal/profile files and even aggregate releases still need recipient/licence/disclosure review. Numeric nearest-record diagnostics are limited; neither suppression nor a classifier AUC is a privacy certificate. Git history may contain historical binaries; no history rewrite was performed.
+
+**What happened to the test split?** Current development uses TRAIN and VAL only, and fitted preprocessing uses TRAIN. The legacy code and historical references computed full-data outcome aggregates and combined-data imputation. The committed legacy DAE trains on TRAIN; the actual private artifact-producing script/run is unverified. Final evaluation must say held-out split whose aggregate statistics were previously computed, never untouched test. The acknowledged frozen final stage cannot repeat after completed metrics. A confirmed crash before metrics may recover with unchanged artifacts; see TEST_SPLIT_POLICY.md.
+
+**What remains unknown?** Actual private state/codebook mappings, preprocessing provenance, which DAE produced imputed files and whether private runs saw test outcomes, sufficient joint scenario support, real conditional/tail quality, weighting policy, publication/disclosure permissions and external validation. OPEN_QUESTIONS.md and BACKLOG.md assign these unresolved decisions. P3's uploaded files were schemas/parser proposals, not executed real-data scores. No external dataset result is claimed.

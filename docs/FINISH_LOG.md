@@ -23,3 +23,7 @@ R5: Started/completed marker states, explicit crash acknowledgement only before 
 2026-10-05T10:40:28.380874+05:30: Push attempt 5, p2-finish, R5 5de5d48: SUCCESS.
 
 R6: Documented every endpoint, actual schema fields, eight full conditions, status/error/client behavior and preset confirmation flow. Captured executed mock API examples and complete mock pipeline ingestion. No frontend/client/package.json/src exists; client adjustment SKIPPED. External capture initially lacked PYTHONPATH; corrected launch path, no code defect. DONE. Full suite: 100 passed, 0 failed/skipped. Separate mock quick run and API example capture passed, including both complete report endpoints.
+
+2026-10-05T10:43:04.304860+05:30: Push attempt 6, p2-finish, R6 bcbeeb3: SUCCESS.
+
+R7: Added preset/mock-report/private-quick runbook and evidence-based viva notes, including honest separate-checkpoint demo/report behavior, metric meanings, limitations and test history. No invented real scores or winner. DONE. Full suite: 100 passed, 0 failed/skipped; commands align with captured mock examples and executed pipeline.
