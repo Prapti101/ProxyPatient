@@ -87,6 +87,26 @@ See [test split policy](docs/TEST_SPLIT_POLICY.md). The held-out split's aggrega
 
 The historical documented test size is 119,794, not independently verified here. V1 rates, DAE losses and missingness statistics are historical and are not current model results.
 
+## Frontend
+
+The React + TypeScript client lives in `frontend/`. From that directory:
+
+```bash
+npm install
+npm run dev
+```
+
+Copy `frontend/.env.example` to `frontend/.env.local` to configure the client:
+
+```text
+VITE_API_BASE_URL=http://localhost:8000
+VITE_DATA_MODE=demo
+```
+
+`VITE_DATA_MODE=demo` uses the clearly labelled local interface demo and does not require FastAPI. Set `VITE_DATA_MODE=api` to call the backend; API errors are shown directly and do not fall back to demo results. `VITE_API_BASE_URL` sets the FastAPI origin. In API mode, start FastAPI as described above; model artifacts and supported profiles must be available for generation. The frontend does not need private survey paths or files.
+
+Routes: `/` (Home), `/explore` (profile builder and generation), `/scenarios` (session history), `/compare` (what-if comparison), `/validation` (measured reports), and `/how-it-works` (pipeline and scope).
+
 ## Files
 
 - `preprocess_v2.py`, `split_and_aggregate_v2.py`, `train_dae_v2.py`: private-holder preparation; do not run against survey data in this sandbox.
