@@ -1,9 +1,130 @@
-import { useState } from 'react'
-import { ArrowRight, GitCompareArrows } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import api from '../services/api'
 import { useAppState } from '../context/AppState'
-import { conditionSummary, Examples, MetricCard, ProfileForm } from '../components/scenarios/ScenarioUI'
-import { Disclaimer, ErrorBox, SectionTitle } from '../components/ui/Blocks'
-import type { Condition, GenerateResponse } from '../types/api'
-export default function Explore(){const state=useAppState(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[result,setResult]=useState<GenerateResponse|null>(state.baselineResult);async function generate(c:Condition){state.setBaseline(c);setError('');setBusy(true);try{const r=await api.generate({condition:c,n:1000,n_examples:3});state.setBaselineResult(r);state.addHistory(r);setResult(r)}catch(e){setError((e as Error).message)}finally{setBusy(false)}}return <div className="page"><div className="page-heading"><div><span className="eyebrow">SCENARIO WORKSPACE · 01</span><h1>Explore a reference profile</h1><p>Set the profile conditions, then generate a synthetic cohort summary.</p></div></div><Disclaimer/><SectionTitle eyebrow="PROFILE INPUTS" title="Define your population context">Presets are supported reference combinations from the backend. You can edit each field before generating.</SectionTitle><ProfileForm initial={state.baseline} busy={busy} onSubmit={generate}/>{error&&<ErrorBox message={error} onRetry={()=>state.baseline&&generate(state.baseline)}/ >}{result&&<section className="results-section" id="results"><div className="results-heading"><div><span className="eyebrow">GENERATED RESULT</span><h2>Synthetic Cohort Generated</h2><p>{conditionSummary(result.effective_conditions)}</p></div></div><MetricCard result={result}/><div className="result-detail-grid"><div className="detail-card"><h3>Scenario context</h3><p><b>Effective conditions</b><br/>{conditionSummary(result.effective_conditions)}</p><p><b>Run type</b><br/>{result.run_type?.toUpperCase()??'Unavailable'}{result.demo?' · mock demo':result.preliminary?' · preliminary':''}</p><p><b>Scope</b><br/>{result.scope}</p><p><b>Weighting</b><br/>{result.weighting}</p></div><div className="detail-card"><h3>How to read this result</h3><p>{result.uncertainty_note}</p><p>{result.note}</p><p><b>Elevated in cohort:</b> {Math.round(result.outcome_stat.rate*result.outcome_stat.n).toLocaleString()} of {result.outcome_stat.n.toLocaleString()}</p></div></div><h3 className="subsection-heading">Representative generated examples</h3><p className="muted">These model-generated examples illustrate the cohort and do not determine its summary statistic.</p><Examples result={result}/><div className="result-actions"><Link to="/compare" className="button primary"><GitCompareArrows size={16}/> Explore a what-if comparison <ArrowRight size={16}/></Link><Link to="/scenarios" className="button secondary">View scenario history</Link></div></section>}</div>}
+import {
+  ConditionDetails,
+  Examples,
+  MetricCard,
+  ProfileForm,
+} from '../components/scenarios/ScenarioUI'
+import { Disclaimer, ErrorBox, PageHeading } from '../components/ui/Blocks'
+import type { Condition } from '../types/api'
+
+export default function Explore() {
+  const state = useAppState()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [submitted, setSubmitted] = useState<Condition | null>(null)
+  const resultHeading = useRef<HTMLHeadingElement>(null)
+  const result = state.baselineResult
+  async function generate(condition: Condition) {
+    setSubmitted(condition)
+    setError('')
+    setBusy(true)
+    try {
+      const response = await api.generate({ condition, n: 1000, n_examples: 3 })
+      state.acceptBaseline(condition, response)
+      requestAnimationFrame(() => resultHeading.current?.focus())
+    } catch (error) {
+      setError((error as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="page">
+      <PageHeading number="01" title="Define your reference.">
+        Choose the population context for your first synthetic cohort.
+      </PageHeading>
+      <Disclaimer />
+      <div className="workspace-intro">
+        <span className="eyebrow">The starting point</span>
+        <p>
+          Every comparison begins with a complete profile. Select a reference below, then adjust its
+          eight conditions.
+        </p>
+      </div>
+      <ProfileForm initial={state.baseline} busy={busy} onSubmit={generate} />
+      {error && (
+        <ErrorBox
+          message={error}
+          onRetry={() => {
+            if (submitted) void generate(submitted)
+          }}
+        />
+      )}
+      {result && (
+        <section className="results-section" id="results">
+          <div className="results-heading">
+            <div>
+              <span className="eyebrow">
+                {busy || error ? 'Last successful result' : 'Your reference / results'}
+              </span>
+              <h2 ref={resultHeading} tabIndex={-1}>
+                Synthetic Cohort Generated
+              </h2>
+            </div>
+            <span className="result-count">{result.outcome_stat.n.toLocaleString()} profiles</span>
+          </div>
+          <MetricCard result={result} />
+          <div className="result-detail-grid">
+            <div className="detail-card">
+              <h3>Effective conditions</h3>
+              <ConditionDetails condition={result.effective_conditions} />
+            </div>
+            <div className="detail-card">
+              <span className="eyebrow">Reading this cohort</span>
+              <h3>Context matters.</h3>
+              <p>{result.note}</p>
+              <p>
+                <b>Scope</b>
+                <br />
+                {result.scope}
+              </p>
+              <p>{result.disclaimer}</p>
+              <details className="sampling-details">
+                <summary>Generation diagnostics</summary>
+                <p>
+                  Rejection share:{' '}
+                  {typeof result.sampling_diagnostics.rejection_rate === 'number'
+                    ? `${(result.sampling_diagnostics.rejection_rate * 100).toFixed(1)}%`
+                    : 'Not reported'}
+                </p>
+                <p>
+                  Clipped share:{' '}
+                  {typeof result.sampling_diagnostics.clipped_share === 'number'
+                    ? `${(result.sampling_diagnostics.clipped_share * 100).toFixed(1)}%`
+                    : 'Not reported'}
+                </p>
+                {typeof result.sampling_diagnostics.warning === 'string' && (
+                  <p>{result.sampling_diagnostics.warning}</p>
+                )}
+              </details>
+            </div>
+          </div>
+          <div className="section-title">
+            <span className="eyebrow">A closer look</span>
+            <h2>Representative examples</h2>
+            <p>
+              A few generated profiles to make the cohort tangible. The full cohort determines the
+              statistic.
+            </p>
+          </div>
+          <Examples result={result} />
+          <div className="next-step">
+            <div>
+              <span className="eyebrow">Next in your notebook</span>
+              <h3>What changes with the context?</h3>
+              <p>Keep this reference and explore a second set of conditions.</p>
+            </div>
+            <Link to="/compare" className="button primary">
+              Compare a scenario <ArrowRight size={16} />
+            </Link>
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
