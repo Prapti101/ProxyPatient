@@ -1,10 +1,10 @@
 # ProxyPatient
 
-**Synthetic scenario exploration for elevated glucose (proxy)**
+**Synthetic scenario exploration for elevated glucose**
 
 ProxyPatient generates synthetic cohorts from a conditional variational autoencoder (CVAE) trained on NFHS-5 India survey data. A user chooses a reference profile, changes its conditions, and compares the generated glucose summaries. The project includes the preprocessing and training workflow, a FastAPI backend, and a React frontend.
 
-The outcome is **generated glucose ≥ 200 mg/dL**, labelled **elevated glucose (proxy)** throughout the application. Glucose is generated, never entered as a condition or filled in by the imputer. A what-if comparison describes a difference between synthetic cohorts. It does not estimate the effect of changing someone's behaviour, diagnose diabetes, or predict an individual's outcome.
+The outcome is **generated glucose ≥ 200 mg/dL**, labelled **elevated glucose** throughout the application. Glucose is generated, never entered as a condition or filled in by the imputer. A what-if comparison describes a difference between synthetic cohorts. It does not estimate the effect of changing someone's behaviour, diagnose diabetes, or predict an individual's outcome.
 
 ## Project overview
 
@@ -80,7 +80,7 @@ Smaller distribution errors are better. Higher outcome-prediction AUC is better.
 | Mean continuous KS | 0.03581 | 0.12996 | 0.21686 |
 | Correlation difference, Frobenius norm | 1.56256 | 2.34711 | 2.97074 |
 | Largest absolute correlation difference | 0.46037 | 0.52168 | 0.94133 |
-| Elevated glucose (proxy) | 1.2432% | 0.2426% | 2.2135% |
+| Elevated glucose | 1.2432% | 0.2426% | 2.2135% |
 | Conditional rate mean absolute error (pp) | 0.6307 | 1.3643 | 1.1106 |
 | Conditional rate maximum absolute error (pp) | 4.2065 | 3.7275 | 2.8681 |
 | Direction matches | 3/5 | 4/5 | 3/5 |
