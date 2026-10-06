@@ -1,0 +1,6 @@
+import { NavLink, Outlet } from 'react-router-dom'
+import { Activity, Menu, X } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { useState } from 'react'
+const links=[['/','Home'],['/explore','Explore'],['/scenarios','Scenarios'],['/compare','Compare'],['/validation','Validation'],['/how-it-works','How It Works']]
+export function Layout(){const [open,setOpen]=useState(false);return <div className="min-h-screen"><header className="topbar"><div className="topbar-inner"><NavLink to="/" className="brand" onClick={()=>setOpen(false)}><span className="brand-icon"><Activity size={19}/></span><span><b>ProxyPatient</b><small>AI PATIENT SCENARIO LAB</small></span></NavLink><button className="mobile-menu" aria-label={open?'Close navigation':'Open navigation'} onClick={()=>setOpen(!open)}>{open?<X/>:<Menu/>}</button><nav className={open?'nav open':'nav'}>{links.map(([to,label])=><NavLink end={to==='/'} to={to} key={to} onClick={()=>setOpen(false)}>{label}</NavLink>)}</nav></div></header><main><motion.div key={location.pathname} initial={{opacity:0,y:5}} animate={{opacity:1,y:0}} transition={{duration:.22,ease:'easeOut'}}><Outlet/></motion.div></main><footer className="footer"><span>ProxyPatient · Synthetic scenario exploration</span><span>Educational / research oriented · No personal medical predictions</span></footer></div>}
