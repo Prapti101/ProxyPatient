@@ -1,8 +1,227 @@
-import { useEffect, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useRef, useState } from 'react'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ErrorBar,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import api from '../services/api'
 import { useAppState } from '../context/AppState'
-import { conditionSummary, Examples, MetricCard, ProfileForm } from '../components/scenarios/ScenarioUI'
-import { Disclaimer, Empty, ErrorBox, SectionTitle, StatusBadge } from '../components/ui/Blocks'
-import type { Condition, ScenarioResult } from '../types/api'
-export default function Compare(){const state=useAppState(),[whatif,setWhatif]=useState<Condition|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[results,setResults]=useState<ScenarioResult[]>(state.comparison);useEffect(()=>{if(state.comparison.length)setResults(state.comparison)},[state.comparison]);async function compare(c:Condition){if(!state.baseline){setError('Generate a baseline profile before comparing.');return}setWhatif(c);setError('');setBusy(true);try{const response=await api.compare({scenarios:[{label:'Reference profile',condition:state.baseline,n:1000,n_examples:3},{label:'What-if scenario',condition:c,n:1000,n_examples:3}]});state.setComparison(response.scenarios);setResults(response.scenarios);response.scenarios.forEach(r=>state.addHistory(r))}catch(e){setError((e as Error).message)}finally{setBusy(false)}}return <div className="page"><SectionTitle eyebrow="DESCRIPTIVE SCENARIO COMPARISON" title="Compare population conditions">Compare generated cohort summaries. Differences describe scenarios and do not show that one condition causes another.</SectionTitle><Disclaimer/>{!state.baseline?<Empty title="A reference profile is needed first" action={<a href="/explore" className="button primary">Build reference profile</a>}>Generate a baseline on Explore before defining the what-if profile.</Empty>:<><div className="baseline-reference"><div><span className="eyebrow">REFERENCE PROFILE</span><h3>{conditionSummary(state.baseline)}</h3></div>{state.baselineResult&&<StatusBadge status={state.baselineResult.status_banner} runType={state.baselineResult.run_type} preliminary={state.baselineResult.preliminary} demo={state.baselineResult.demo}/>}</div><SectionTitle eyebrow="WHAT-IF INPUTS" title="Adjust a profile">Choose a reference preset or change values. The backend requires a complete profile for each scenario.</SectionTitle><ProfileForm initial={whatif??state.baseline} submitLabel="Compare scenarios" busy={busy} onSubmit={compare}/>{error&&<ErrorBox message={error} onRetry={()=>whatif&&compare(whatif)}/>}</>}{results.length>0&&<section className="compare-results"><div className="results-heading"><div><span className="eyebrow">SIDE-BY-SIDE RESULTS</span><h2>Generated cohort comparison</h2></div><StatusBadge status={results[0].status_banner} runType={results[0].run_type} preliminary={results[0].preliminary} demo={results[0].demo}/></div><p className="causal-note">This comparison shows how the generated cohort statistic changes under different population conditions. It does not demonstrate that changing a condition causes the observed difference.</p><div className="compare-grid">{results.slice(0,2).map((r,i)=><div key={`${r.label}-${i}`}><h3>{i===0?'BASELINE':'WHAT-IF'}</h3><p className="muted">{conditionSummary(r.effective_conditions)}</p><MetricCard result={r} title={r.label}/><Examples result={r}/></div>)}</div>{results.length>=2&&<div className="delta-card"><div><span className="eyebrow">CHANGE FROM BASELINE</span><b>{results[1].delta_pp>0?'+':''}{results[1].delta_pp.toFixed(2)} pp</b><p>Descriptive percentage-point difference across generated cohorts.</p></div><div className="chart-wrap"><ResponsiveContainer width="100%" height={220}><BarChart data={results.slice(0,2).map(r=>({name:r.label,rate:r.outcome_stat.rate_pct,low:r.outcome_stat.ci_low*100,high:r.outcome_stat.ci_high*100}))} margin={{top:10,right:15,bottom:5,left:0}}><CartesianGrid strokeDasharray="3 3" stroke="#243449"/><XAxis dataKey="name" stroke="#9aabc0"/><YAxis unit="%" stroke="#9aabc0"/><Tooltip contentStyle={{background:'#0d1a2b',border:'1px solid #26384d',borderRadius:12}} formatter={(v:number)=>`${v.toFixed(2)}%`}/><Bar dataKey="rate" name="Elevated glucose (proxy)" radius={[6,6,0,0]}>{results.slice(0,2).map((_,i)=><Cell key={i} fill={i?'#9d8cff':'#65e6d1'}/>)}</Bar></BarChart></ResponsiveContainer></div></div>}</section>}</div>}
+import {
+  ConditionDetails,
+  Examples,
+  MetricCard,
+  ProfileForm,
+} from '../components/scenarios/ScenarioUI'
+import {
+  Disclaimer,
+  Empty,
+  ErrorBox,
+  ExploreLink,
+  PageHeading,
+  SectionTitle,
+} from '../components/ui/Blocks'
+import type { Condition } from '../types/api'
+
+export default function Compare() {
+  const state = useAppState()
+  const [whatif, setWhatif] = useState<Condition | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  const results = state.comparison
+  async function compare(condition: Condition) {
+    if (!state.baseline) return
+    setWhatif(condition)
+    setError('')
+    setBusy(true)
+    try {
+      const response = await api.compare({
+        scenarios: [
+          { label: 'Reference profile', condition: state.baseline, n: 1000, n_examples: 3 },
+          { label: 'What-if scenario', condition, n: 1000, n_examples: 3 },
+        ],
+      })
+      state.setComparison(response.scenarios)
+      response.scenarios.forEach((result) => state.addHistory(result))
+      requestAnimationFrame(() => heading.current?.focus())
+    } catch (error) {
+      setError((error as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const chartData = results.slice(0, 2).map((result) => ({
+    name: result.label,
+    rate: result.outcome_stat.rate_pct,
+    interval: [
+      (result.outcome_stat.rate - result.outcome_stat.ci_low) * 100,
+      (result.outcome_stat.ci_high - result.outcome_stat.rate) * 100,
+    ],
+  }))
+  return (
+    <div className="page">
+      <PageHeading number="02" title="Change the context.">
+        Keep a reference in view. Compare it with a second synthetic population.
+      </PageHeading>
+      <Disclaimer />
+      {!state.baseline ? (
+        <Empty title="Begin with a reference profile" action={<ExploreLink />}>
+          Generate your first cohort in Explore. It becomes the reference for this comparison.
+        </Empty>
+      ) : (
+        <>
+          <div className="baseline-reference">
+            <div>
+              <span className="eyebrow">Your reference / held for comparison</span>
+              <h2>The starting conditions</h2>
+            </div>
+            <ConditionDetails condition={state.baseline} />
+          </div>
+          <SectionTitle eyebrow="The second scenario" title="What would you change?">
+            Adjust any condition below. A new request generates both cohorts together.
+          </SectionTitle>
+          <ProfileForm
+            initial={whatif ?? state.baseline}
+            submitLabel="Compare scenarios"
+            busy={busy}
+            onSubmit={compare}
+          />
+          {error && (
+            <ErrorBox
+              message={error}
+              onRetry={() => {
+                if (whatif) void compare(whatif)
+              }}
+            />
+          )}
+        </>
+      )}
+      {results.length > 0 && (
+        <section className="results-section">
+          <div className="results-heading">
+            <div>
+              <span className="eyebrow">
+                {busy || error ? 'Last successful comparison' : 'The comparison / results'}
+              </span>
+              <h2 ref={heading} tabIndex={-1}>
+                Two contexts, side by side.
+              </h2>
+            </div>
+          </div>
+          <p className="causal-note">
+            These differences describe generated groups. They do not demonstrate that changing a
+            condition causes an outcome.
+          </p>
+          <div className="compare-grid">
+            {results.slice(0, 2).map((result, index) => (
+              <article
+                key={`${result.label}-${index}`}
+                className={`comparison-column column-${index}`}
+              >
+                <div className="comparison-label">
+                  <span>{index === 0 ? 'A' : 'B'}</span>
+                  <h3>{index === 0 ? 'Reference profile' : 'What-if scenario'}</h3>
+                </div>
+                <MetricCard result={result} title={result.label} />
+                <details className="comparison-conditions">
+                  <summary>View effective conditions</summary>
+                  <ConditionDetails condition={result.effective_conditions} />
+                </details>
+              </article>
+            ))}
+          </div>
+          {results.length >= 2 && (
+            <div className="delta-card">
+              <div>
+                <span className="eyebrow">Change from reference</span>
+                <b>
+                  {results[1].delta_pp > 0 ? '+' : ''}
+                  {results[1].delta_pp.toFixed(2)} <small>pp</small>
+                </b>
+                <p>
+                  Percentage points, not percent change.
+                  <br />A descriptive difference between cohorts.
+                </p>
+              </div>
+              <div
+                className="chart-wrap"
+                role="img"
+                aria-label={`Reference ${results[0].outcome_stat.rate_pct.toFixed(2)} percent; what-if ${results[1].outcome_stat.rate_pct.toFixed(2)} percent. Intervals are listed in the result cards.`}
+              >
+                <ResponsiveContainer width="100%" height={230}>
+                  <BarChart
+                    accessibilityLayer
+                    data={chartData}
+                    margin={{ top: 15, right: 16, bottom: 6, left: 0 }}
+                  >
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#d9dfd8" />
+                    <XAxis
+                      dataKey="name"
+                      tickLine={false}
+                      axisLine={false}
+                      stroke="#58665f"
+                      fontSize={12}
+                    />
+                    <YAxis
+                      unit="%"
+                      tickLine={false}
+                      axisLine={false}
+                      stroke="#58665f"
+                      fontSize={12}
+                      domain={[
+                        0,
+                        (maximum: number) => Math.min(100, Math.max(1, Math.ceil(maximum * 1.15))),
+                      ]}
+                    />
+                    <Tooltip
+                      cursor={{ fill: '#edf0e9' }}
+                      contentStyle={{
+                        background: '#fffefb',
+                        border: '1px solid #cbd3c9',
+                        borderRadius: 4,
+                        fontSize: 13,
+                      }}
+                      formatter={(value: number) => `${value.toFixed(2)}%`}
+                    />
+                    <Bar
+                      dataKey="rate"
+                      name="Elevated glucose (proxy)"
+                      maxBarSize={74}
+                      radius={[3, 3, 0, 0]}
+                      isAnimationActive={false}
+                    >
+                      {chartData.map((_, index) => (
+                        <Cell key={index} fill={index ? '#a66b45' : '#246453'} />
+                      ))}
+                      <ErrorBar dataKey="interval" width={8} stroke="#34463f" strokeWidth={1.5} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+          <SectionTitle eyebrow="Inside each cohort" title="Representative examples">
+            Illustrations from each result. Read the labels and example availability alongside the
+            numbers.
+          </SectionTitle>
+          <div className="compare-grid">
+            {results.slice(0, 2).map((result, index) => (
+              <section key={index}>
+                <h3 className="examples-column-heading">
+                  {index === 0 ? 'A / Reference' : 'B / What-if'}
+                </h3>
+                <Examples result={result} />
+              </section>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
