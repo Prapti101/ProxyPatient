@@ -1,0 +1,42 @@
+{
+  "title": "Synthetic Data Model Comparison",
+  "models": [
+    {
+      "model": "CVAE-MLP",
+      "family": "conditional variational autoencoder",
+      "strength": "Explicit conditioning and flexible nonlinear tabular generation",
+      "viva_point": "Good candidate when scenario/condition control is central",
+      "metrics": null
+    },
+    {
+      "model": "GRU",
+      "family": "recurrent neural network",
+      "strength": "Captures ordered/sequential dependencies",
+      "viva_point": "Useful when the data has a meaningful temporal sequence",
+      "metrics": null
+    },
+    {
+      "model": "CNN",
+      "family": "convolutional neural network",
+      "strength": "Learns local patterns after an appropriate structured representation",
+      "viva_point": "Less natural for ordinary independent tabular columns unless structure is imposed",
+      "metrics": null
+    },
+    {
+      "model": "CTGAN",
+      "family": "conditional tabular GAN",
+      "strength": "Designed for mixed-type tabular distributions and conditional sampling",
+      "viva_point": "Strong baseline for tabular synthetic data with categorical variables",
+      "metrics": null
+    },
+    {
+      "model": "TVAE",
+      "family": "tabular variational autoencoder",
+      "strength": "Stable latent-variable baseline for tabular synthesis",
+      "viva_point": "Useful comparison against adversarial and conditional neural approaches",
+      "metrics": null
+    }
+  ],
+  "ranking_policy": "Do not rank models from architecture alone. Rank using the measured validation metrics: outcome preservation, KS/Wasserstein, correlation error, TSTR utility, real-vs-synthetic distinguishability, subgroup fidelity, and nearest-real-record distance.",
+  "status": "architecture_table_ready_metrics_pending_dataset_execution"
+}

@@ -1,0 +1,32 @@
+{
+  "status": "ready_to_run",
+  "dataset_status": {
+    "uploaded_file": "f44521e9-c808-42b9-bd3e-72093b13ff61.parquet",
+    "read_status": "not_executed_in_this_runtime",
+    "reason": "The runtime has no installed Parquet engine (pyarrow/fastparquet). No validation score is fabricated."
+  },
+  "outcome_stat": {
+    "definition": "Outcome percentage = positive outcome rate; bootstrap 95% CI uses row-level resampling; change_vs_baseline = synthetic outcome rate minus real/baseline outcome rate.",
+    "fields": ["outcome_rate", "bootstrap_95_ci", "change_vs_baseline"]
+  },
+  "fidelity_checks": {
+    "univariate": ["KS statistic/p-value per numeric column", "Wasserstein distance per numeric column"],
+    "correlation": "Pearson correlation matrix comparison using Frobenius norm and mean absolute correlation difference",
+    "train_on_synthetic_test_on_real": "Classifier trained only on synthetic rows and evaluated on held-out real rows; ROC-AUC, accuracy, F1",
+    "real_vs_synthetic_classifier": "Classifier attempts to distinguish real from synthetic; ROC-AUC near 0.5 is desirable",
+    "subgroup_fidelity": "Per subgroup with n >= 30; smaller subgroups are retained but flagged with warning",
+    "distance_to_closest_real_record": "Nearest-neighbor distance after robust scaling; reports mean/median/p95 and exact/near-duplicate rate"
+  },
+  "model_comparison": {
+    "models": ["CVAE-MLP", "GRU", "CNN", "CTGAN", "TVAE"],
+    "metrics": ["outcome_rate", "outcome_delta_vs_baseline", "mean_KS", "mean_Wasserstein", "correlation_error", "TSTR_ROC_AUC", "real_vs_synthetic_ROC_AUC", "nearest_real_distance"],
+    "score_status": "pending_dataset_execution"
+  },
+  "viva_evidence": [
+    "A strong synthetic dataset should preserve marginal distributions, pairwise relationships, subgroup behavior and downstream utility without making real-vs-synthetic classification easy.",
+    "For TSTR, a useful synthetic dataset should support a model that generalizes to real held-out data.",
+    "For the real-vs-synthetic classifier, ROC-AUC close to 0.5 indicates weak distinguishability; substantially above 0.5 indicates detectable synthetic artifacts.",
+    "Subgroup checks are only treated as statistically stable when n >= 30; smaller groups receive an explicit warning.",
+    "Nearest-real-record distance is a privacy/fidelity diagnostic: unusually small distances can indicate memorization or duplication."
+  ]
+}
