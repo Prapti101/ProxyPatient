@@ -101,10 +101,6 @@ ProxyPatient's main model generates measurements rather than assigning a binary 
 | Synthetic-to-real ROC AUC | 0.66501 | 0.63508 | 0.48567 |
 | Real-to-real ROC AUC | 0.75646 | 0.75646 | 0.75646 |
 | Real-versus-synthetic source ROC AUC | 0.49851 | 0.74818 | 0.80041 |
-| Classification accuracy | Not recorded | Not recorded | Not recorded |
-| Precision | Not recorded | Not recorded | Not recorded |
-| Recall | Not recorded | Not recorded | Not recorded |
-| F1 score | Not recorded | Not recorded | Not recorded |
 
 Accuracy and F1 cannot be recovered from AUC or aggregate glucose rates. They require labelled classifier predictions at a specified decision threshold. The 100% age-band and BMI-band consistency values below measure constraint satisfaction during generation; they are not classification accuracy.
 
