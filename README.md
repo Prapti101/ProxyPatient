@@ -92,7 +92,7 @@ Smaller distribution errors are better. Higher outcome-prediction AUC is better.
 
 “pp” means percentage points. The real retained cohort's elevated-glucose rate is **1.4554%**, compared with **1.2432%** for CVAE, **0.2426%** for TVAE and **2.2135%** for CTGAN. The signed differences from real are −0.2122, −1.2128 and +0.7581 pp, respectively. These are cohort rates, not classification accuracy scores or national prevalence estimates.
 
-### Accuracy, precision, recall and F1
+### Evaluation Metrics
 
 ProxyPatient's main model generates measurements rather than assigning a binary class to an input person. Its evaluation uses distribution fidelity, subgroup outcome rates and classifier utility. The supplied evaluation reports save ROC AUC for the auxiliary classifiers; they do not save thresholded predictions or confusion matrices.
 
